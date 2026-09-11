@@ -108,7 +108,7 @@ ${system_prompt || "Sé amable y guía al usuario a realizar una compra."}`;
 
         const completion = await groq.chat.completions.create({
             messages: history,
-            model: "llama-3.1-70b-versatile", // Modelo soportado por Groq
+            model: "openai/gpt-oss-20b", // Modelo disponible en la API actual
             temperature: 0.1,
             max_tokens: 500,
         });
