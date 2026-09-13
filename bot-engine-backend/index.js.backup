@@ -1,0 +1,807 @@
+const express = require('express');
+const cors = require('cors');
+require('dotenv').config();
+const pool = require('./db');
+const multer = require('multer');
+const { S3Client, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const crypto = require('crypto');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const Groq = require('groq-sdk');
+const NodeCache = require('node-cache');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const s3Client = new S3Client({ region: process.env.AWS_REGION });
+const bucketName = process.env.AWS_S3_BUCKET;
+const upload = multer({ storage: multer.memoryStorage() });
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secreto-saas-2026';
+
+// 🧠 Configuración Inteligencia Artificial
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const chatCache = new NodeCache({ stdTTL: 900 }); // Borra memoria de chats a los 15 minutos
+
+
+async function logMessage(tenant_id, phone, direction, type, content) {
+    try {
+        await pool.query(
+            `INSERT INTO messages (tenant_id, customer_phone, direction, message_type, content) VALUES ($1, $2, $3, $4, $5)`,
+            [tenant_id, phone, direction, type, content]
+        );
+    } catch (e) {
+        console.error(`Error logging message:`, e);
+    }
+}
+
+// --- FUNCIONES DEL BOT (WHATSAPP API) ---
+async function sendWhatsAppMenu(phone_number_id, token, to, tenant_id, tenant_name) {
+    try {
+        const prodResult = await pool.query('SELECT * FROM products WHERE tenant_id = $1 AND is_active = true LIMIT 10', [tenant_id]);
+        const productos = prodResult.rows;
+        let payload;
+        if (productos.length === 0) {
+            payload = { messaging_product: `whatsapp`, to: to, type: `text`, text: { body: `Hola! Bienvenido a *${tenant_name}*.\nEn este momento estamos actualizando nuestro catálogo. ¡Vuelve pronto!` } };
+        } else {
+            const rows = productos.map(p => ({ id: `prod_${p.id}`, title: p.name.substring(0, 24), description: `Q${p.price} - ${p.description.substring(0, 50)}` }));
+            payload = {
+                messaging_product: `whatsapp`, to: to, type: `interactive`,
+                interactive: {
+                    type: `list`, header: { type: `text`, text: `Menú de ${tenant_name}` },
+                    body: { text: `Selecciona el producto que deseas pedir o consultar:` },
+                    footer: { text: `SaaS Bot Engine` },
+                    action: { button: `Ver Catálogo 🛍️`, sections: [{ title: `Productos Disponibles`, rows: rows }] }
+                }
+            };
+        }
+        await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+            method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+    } catch (error) { console.error(`Error enviando menú WhatsApp:`, error); }
+}
+
+async function sendWhatsAppText(phone_number_id, token, to, text, tenant_id = null) {
+    try {
+        await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+            method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messaging_product: `whatsapp`, to: to, type: `text`, text: { body: text } })
+        });
+        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'text', text);
+    } catch (error) { console.error(`Error enviando texto WhatsApp:`, error); }
+}
+
+async function sendWhatsAppAI(phone_number_id, token, to, tenant_id, tenant_name, system_prompt, user_message) {
+    try {
+        const prodResult = await pool.query('SELECT * FROM products WHERE tenant_id = $1 AND is_active = true', [tenant_id]);
+        const tenantResult = await pool.query('SELECT business_rules FROM tenants WHERE id = $1', [tenant_id]);
+        const business_rules = tenantResult.rows[0]?.business_rules || ``;
+        
+        let catalogoTexto = `CATÁLOGO DE PRODUCTOS:\n`;
+        if (prodResult.rows.length === 0) catalogoTexto += `No hay productos.\n`;
+        prodResult.rows.forEach(p => catalogoTexto += `- ${p.name}: $${p.price} (${p.description}) (ID_FOTO=${p.id})\n`);
+
+        let faqTexto = ``;
+        try {
+            if (business_rules) {
+                const faqs = JSON.parse(business_rules);
+                if (Array.isArray(faqs)) {
+                    faqs.forEach(f => faqTexto += `PREGUNTA: ${f.q}\nRESPUESTA: ${f.a}\n\n`);
+                } else faqTexto = business_rules;
+            }
+        } catch(e) { faqTexto = business_rules; }
+
+        const basePrompt = `Eres el asistente virtual oficial de ${tenant_name}.
+Tu objetivo es atender a los clientes, mostrarles el catálogo y cerrar ventas.
+
+REGLAS CRÍTICAS:
+1. RESPONDE SIEMPRE EN 1 O 2 PÁRRAFOS MÁXIMO. Sé cálido y conciso. Evita respuestas largas y robóticas.
+2. Usa el formato de WhatsApp (*negritas*, _cursivas_ y emojis 🚀).
+3. SIEMPRE utiliza el catálogo para ofrecer productos. NO INVENTES PRODUCTOS NI PRECIOS.
+4. Si el cliente quiere realizar un pedido y te ha dado su dirección, o puedes deducirla, DEBES usar la función 'create_order' para guardar el pedido en el sistema. NO uses texto plano para confirmar el pedido, USA LA FUNCIÓN.
+5. Si el cliente está frustrado, tiene un problema complejo o pide explícitamente hablar con un humano o asesor, DEBES usar la función 'transfer_to_human'.
+6. Si te piden una foto, responde el mensaje e incluye en cualquier parte del texto el código secreto [IMG_X], reemplazando X por el ID_FOTO del producto.
+
+CATÁLOGO:
+${catalogoTexto}
+
+REGLAS DEL NEGOCIO / FAQS:
+${faqTexto}
+
+INSTRUCCIONES EXTRA DEL DUEÑO:
+${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
+
+        // 1. Fetch recent message history for memory!
+        const historyRes = await pool.query(
+            `SELECT direction, content FROM messages WHERE tenant_id = $1 AND customer_phone = $2 ORDER BY created_at ASC LIMIT 10`,
+            [tenant_id, to]
+        );
+        
+        let messages = [ { role: `system`, content: basePrompt } ];
+        for (let row of historyRes.rows) {
+            messages.push({
+                role: row.direction === 'inbound' ? 'user' : 'assistant',
+                content: row.content || ''
+            });
+        }
+        
+        // Ensure the current user message is always the last one if it wasn't fetched yet
+        if (messages.length === 1 || messages[messages.length-1].content !== user_message) {
+            messages.push({ role: `user`, content: user_message });
+        }
+
+        const tools = [
+            {
+                type: `function`,
+                function: {
+                    name: `create_order`,
+                    description: `Crea un pedido oficial en el sistema. Úsalo cuando el cliente ya eligió sus productos y sabes su dirección.`,
+                    parameters: {
+                        type: `object`,
+                        properties: {
+                            items: {
+                                type: `array`,
+                                items: {
+                                    type: `object`,
+                                    properties: {
+                                        product: { type: `string` },
+                                        quantity: { type: `integer` }
+                                    }
+                                }
+                            },
+                            delivery_address: { type: `string` }
+                        },
+                        required: [`items`, `delivery_address`]
+                    }
+                }
+            },
+            {
+                type: `function`,
+                function: {
+                    name: `transfer_to_human`,
+                    description: `Silencia el bot y notifica a un humano. Úsalo si el cliente pide un asesor, está molesto, o tiene dudas que no puedes resolver.`,
+                    parameters: {
+                        type: `object`,
+                        properties: {
+                            reason: { type: `string` }
+                        }
+                    }
+                }
+            }
+        ];
+
+        const completion = await groq.chat.completions.create({
+            messages: messages,
+            model: `llama-3.1-70b-versatile`, // Mejor modelo para Tool Calling
+            temperature: 0.1,
+            max_tokens: 800,
+            tools: tools,
+            tool_choice: `auto`
+        });
+
+        const choice = completion.choices[0];
+        
+        if (choice.message?.tool_calls) {
+            for (let toolCall of choice.message.tool_calls) {
+                if (toolCall.function.name === `create_order`) {
+                    const args = JSON.parse(toolCall.function.arguments);
+                    
+                    // Insert order into DB
+                    await pool.query(
+                        `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address) VALUES ($1, $2, $3, $4)`,
+                        [tenant_id, to, JSON.stringify(args.items), args.delivery_address]
+                    );
+                    
+                    const replyMsg = `✅ ¡Pedido registrado con éxito!\n\nEnviaremos tus productos a: *${args.delivery_address}*.\n\nEn breve un asesor se comunicará contigo para confirmar el pago y el envío. ¡Gracias por comprar en ${tenant_name}!`;
+                    await sendWhatsAppText(phone_number_id, token, to, replyMsg, tenant_id);
+                    
+                    // Silenciar bot porque ya compró y requiere que el dueño cobre
+                    chatCache.set(`mute_${tenant_id}_${to}`, Date.now() + (2 * 60 * 60 * 1000));
+                    return; // Terminamos
+                }
+                
+                if (toolCall.function.name === `transfer_to_human`) {
+                    // Mute bot for 2 hours
+                    chatCache.set(`mute_${tenant_id}_${to}`, Date.now() + (2 * 60 * 60 * 1000));
+                    
+                    // Update session status in DB
+                    await pool.query(`UPDATE chat_sessions SET status = 'humano' WHERE tenant_id = $1 AND user_phone = $2`, [tenant_id, to]);
+                    
+                    const replyMsg = `⏳ Entendido. He pausado mis respuestas automáticas. Un asesor humano te responderá lo más pronto posible.`;
+                    await sendWhatsAppText(phone_number_id, token, to, replyMsg, tenant_id);
+                    return; // Terminamos
+                }
+            }
+        }
+
+        // Si no usó herramientas, enviamos su respuesta de texto normal
+        let aiResponse = choice.message?.content || ``;
+        if (aiResponse) {
+            // Manejar magia visual (imágenes)
+            const regex = /\[IMG_(\d+)\]/g;
+            let match;
+            let hasImages = false;
+            while ((match = regex.exec(aiResponse)) !== null) {
+                hasImages = true;
+                const prodId = match[1];
+                const p = prodResult.rows.find(row => row.id == prodId);
+                if (p && p.image_url) {
+                    try {
+                        await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+                            method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ messaging_product: `whatsapp`, to: to, type: `image`, image: { link: p.image_url } })
+                        });
+                        await logMessage(tenant_id, to, 'outbound', 'image', `[Imagen: ${p.name}]`);
+                    } catch(e){}
+                }
+            }
+            
+            // Limpiar la etiqueta de imagen del texto final para que no se vea el código
+            let cleanResponse = aiResponse.replace(/\[IMG_\d+\]/g, ``).trim();
+            if (cleanResponse) {
+                await sendWhatsAppText(phone_number_id, token, to, cleanResponse, tenant_id);
+            }
+        }
+
+    } catch (error) { 
+        console.error(`AI Error:`, error);
+    }
+}
+// --- RUTAS DE LA API (PANEL WEB REACT) ---
+
+// LOGIN (Súper Admin y Clientes)
+app.post('/api/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (email === 'admin@admin.com' && password === 'admin123') {
+            const token = jwt.sign({ role: 'admin' }, JWT_SECRET);
+            return res.json({ token, role: 'admin' });
+        }
+        const result = await pool.query('SELECT * FROM tenants WHERE email = $1', [email]);
+        if (result.rows.length === 0) return res.status(401).json({ error: `Credenciales inválidas` });
+        
+        const tenant = result.rows[0];
+        if (!tenant.is_active) return res.status(403).json({ error: `Tu cuenta ha sido suspendida. Contacta a soporte.` });
+
+        // Si no hay password_hash (clientes creados antes de este parche), permitir pasar solo si pusieron `123456` para propósitos de migración
+        if (!tenant.password_hash && password === '123456') {
+             // Pass
+        } else {
+             const match = await bcrypt.compare(password, tenant.password_hash);
+             if (!match) return res.status(401).json({ error: `Credenciales inválidas` });
+        }
+
+        const token = jwt.sign({ role: 'client', tenant_id: tenant.id }, JWT_SECRET);
+        res.json({ token, role: 'client', tenant_id: tenant.id, name: tenant.name });
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.get('/api/clientes', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT id, name, email, bot_tier, is_active, whatsapp_phone_id, whatsapp_token, created_at, features FROM tenants ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.post('/api/clientes', async (req, res) => {
+    try {
+        const { name, email, bot_tier, password, template_id } = req.body;
+        if (!name || !email || !password) return res.status(400).json({ error: `Faltan datos` });
+        const hash = await bcrypt.hash(password, 10);
+        
+        let systemPrompt = null;
+        let businessRules = '[]';
+        let finalTier = bot_tier || 1;
+
+        if (template_id) {
+            const tpl = await pool.query('SELECT * FROM templates WHERE id = $1', [template_id]);
+            if (tpl.rows.length > 0) {
+                systemPrompt = tpl.rows[0].system_prompt;
+                businessRules = JSON.stringify(tpl.rows[0].business_rules);
+                finalTier = tpl.rows[0].bot_tier;
+            }
+        }
+
+        const result = await pool.query(
+            'INSERT INTO tenants (name, email, bot_tier, password_hash, is_active, system_prompt, business_rules) VALUES ($1, $2, $3, $4, true, $5, $6) RETURNING id, name, email, bot_tier',
+            [name, email, finalTier, hash, systemPrompt, businessRules]
+        );
+        res.status(201).json({ message: `Cliente creado`, cliente: result.rows[0] });
+    } catch (error) {
+        if (error.code === '23505') return res.status(400).json({ error: `Correo duplicado.` });
+        res.status(500).json({ error: `Error interno` });
+    }
+});
+
+// Rutas de Plantillas
+app.get('/api/templates', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM templates ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.post('/api/templates', async (req, res) => {
+    try {
+        const { name, bot_tier, system_prompt, business_rules } = req.body;
+        const result = await pool.query(
+            'INSERT INTO templates (name, bot_tier, system_prompt, business_rules) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, bot_tier, system_prompt, JSON.stringify(business_rules || [])]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.put('/api/templates/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, bot_tier, system_prompt, business_rules } = req.body;
+        await pool.query(
+            'UPDATE templates SET name = $1, bot_tier = $2, system_prompt = $3, business_rules = $4 WHERE id = $5',
+            [name, bot_tier, system_prompt, JSON.stringify(business_rules || []), id]
+        );
+        res.json({ message: `Plantilla actualizada` });
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.delete('/api/templates/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM templates WHERE id = $1', [req.params.id]);
+        res.json({ message: `Plantilla eliminada` });
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+// Editar Cliente (Tokens y Kill-switch)
+app.put('/api/clientes/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { whatsapp_token, whatsapp_phone_id, is_active, name, bot_tier, features } = req.body;
+        await pool.query(
+            'UPDATE tenants SET whatsapp_token = $1, whatsapp_phone_id = $2, is_active = $3, name = $4, bot_tier = $5, features = COALESCE($7::jsonb, features) WHERE id = $6',
+            [whatsapp_token, whatsapp_phone_id, is_active, name, bot_tier, id, features ? JSON.stringify(features) : null]
+        );
+        res.json({ message: `Cliente actualizado` });
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.get('/api/tenant/:id', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT name, bot_tier, system_prompt, tier1_greeting, tier1_menu, business_rules, features FROM tenants WHERE id = $1', [req.params.id]);
+        res.json(result.rows[0]);
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.put('/api/tenant/:id/config', async (req, res) => {
+    try {
+        const { system_prompt, tier1_greeting, tier1_menu, business_rules } = req.body;
+        await pool.query(
+            'UPDATE tenants SET system_prompt = $1, tier1_greeting = $2, tier1_menu = $3, business_rules = $4 WHERE id = $5',
+            [system_prompt, tier1_greeting, JSON.stringify(tier1_menu || []), business_rules, req.params.id]
+        );
+        res.json({ message: `Configuración guardada` });
+    } catch (error) { console.error(error); res.status(500).json({ error: `Error interno` }); }
+});
+
+app.post('/api/productos', upload.single('image'), async (req, res) => {
+    try {
+        const { tenant_id, name, description, price } = req.body;
+        const file = req.file;
+        if (!tenant_id || !name || !file) return res.status(400).json({ error: `Faltan datos` });
+
+        const fileExtension = file.originalname.split('.').pop();
+        const randomName = crypto.randomBytes(16).toString('hex');
+        const s3Key = `catalogo/${tenant_id}/${randomName}.${fileExtension}`;
+
+        await s3Client.send(new PutObjectCommand({ Bucket: bucketName, Key: s3Key, Body: file.buffer, ContentType: file.mimetype }));
+        const imageUrl = `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+        
+        const result = await pool.query(
+            'INSERT INTO products (tenant_id, name, description, price, image_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [tenant_id, name, description, price, imageUrl]
+        );
+        res.status(201).json({ message: `Producto guardado`, producto: result.rows[0] });
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+app.put('/api/productos/:id', upload.single('image'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, description, price } = req.body;
+        const file = req.file;
+
+        if (!name) return res.status(400).json({ error: `Falta el nombre` });
+
+        if (file) {
+            const fileExtension = file.originalname.split('.').pop();
+            const randomName = crypto.randomBytes(16).toString('hex');
+            const s3Key = `catalogo/edits/${randomName}.${fileExtension}`;
+            await s3Client.send(new PutObjectCommand({ Bucket: bucketName, Key: s3Key, Body: file.buffer, ContentType: file.mimetype }));
+            const imageUrl = `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+            
+            await pool.query(
+                'UPDATE products SET name = $1, description = $2, price = $3, image_url = $4 WHERE id = $5',
+                [name, description, price, imageUrl, id]
+            );
+        } else {
+            await pool.query(
+                'UPDATE products SET name = $1, description = $2, price = $3 WHERE id = $4',
+                [name, description, price, id]
+            );
+        }
+        res.json({ message: `Producto actualizado` });
+    } catch (error) { console.error(error); res.status(500).json({ error: `Error interno` }); }
+});
+
+app.get('/api/productos/:tenant_id', async (req, res) => {
+    try {
+        const { tenant_id } = req.params;
+        const result = await pool.query('SELECT * FROM products WHERE tenant_id = $1 ORDER BY created_at DESC', [tenant_id]);
+        res.json(result.rows);
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+// Eliminar Producto
+app.delete('/api/productos/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pResult = await pool.query('SELECT image_url FROM products WHERE id = $1', [id]);
+        if (pResult.rows.length > 0) {
+            const s3Key = pResult.rows[0].image_url.split('.amazonaws.com/')[1];
+            if (s3Key) await s3Client.send(new DeleteObjectCommand({ Bucket: bucketName, Key: s3Key })).catch(()=>{});
+        }
+        await pool.query('DELETE FROM products WHERE id = $1', [id]);
+        res.json({ message: `Producto eliminado` });
+    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+});
+
+// --- RUTAS DEL WEBHOOK ---
+app.get('/webhook', (req, res) => { console.log('GET WEBHOOK RECIBIDO!');
+    if (req.query[`hub.mode`] === "subscribe" && req.query[`hub.verify_token`] === process.env.WHATSAPP_VERIFY_TOKEN) {
+        res.status(200).send(req.query[`hub.challenge`]);
+    } else res.sendStatus(403);
+});
+
+app.post('/webhook', async (req, res) => {
+    try {
+        let body = req.body;
+        if (body.object && body.entry && body.entry[0].changes[0].value.messages) {
+            let phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
+            let from = body.entry[0].changes[0].value.messages[0].from;
+            
+            const tenantResult = await pool.query('SELECT * FROM tenants WHERE whatsapp_phone_id = $1', [phone_number_id]);
+            if (tenantResult.rows.length === 0) return res.sendStatus(200);
+            
+            const tenant = tenantResult.rows[0];
+            if (!tenant.is_active) {
+                console.log(`🛑 Cliente ${tenant.name} está SUSPENDIDO. Ignorando mensajes.`);
+                return res.sendStatus(200);
+            }
+            if (!tenant.whatsapp_token) return res.sendStatus(200);
+
+            const sessionResult = await pool.query('SELECT status FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2', [tenant.id, from]);
+            if (sessionResult.rows.length > 0 && sessionResult.rows[0].status === 'humano') return res.sendStatus(200);
+
+            // Extraer el texto real que escribió el usuario (o el botón que presionó)
+            let user_message = ``;
+            let msgObj = body.entry[0].changes[0].value.messages[0];
+            if (msgObj.type === `text`) user_message = msgObj.text.body;
+            else if (msgObj.type === `interactive`) {
+                if (msgObj.interactive.type === `list_reply`) user_message = msgObj.interactive.list_reply.title;
+                else if (msgObj.interactive.type === `button_reply`) user_message = msgObj.interactive.button_reply.title;
+            }
+            
+            // Log incoming message
+            await logMessage(tenant.id, from, 'inbound', msgObj.type, user_message || `media`);
+            
+            // GLOBAL MUTE CHECK (For human handoff in ANY tier)
+            let muteKey = `mute_${tenant.id}_${from}`;
+            let muteUntil = chatCache.get(muteKey);
+            if (muteUntil && Date.now() < muteUntil) {
+                return res.sendStatus(200); // Silent mode active
+            }
+
+            if (tenant.bot_tier === 1) {
+                // Manejo de estado de pedido (Opción 3 y fotos de producto)
+                let cacheKey = `tier1_${tenant.id}_${from}`;
+                let state = chatCache.get(cacheKey) || {};
+
+                // --- PILAR 4: MODO SILENCIO ---
+                if (state.muted_until && Date.now() < state.muted_until) {
+                    return res.sendStatus(200); // Ignorar mientras esté en silencio
+                }
+
+                // Helper para enviar menú principal interactivo
+                const sendMainMenu = async () => {
+                    let menus = tenant.tier1_menu || [];
+                    let rows = [{ id: `btn_catalogo`, title: `🛍️ Ver productos` }];
+                    menus.forEach((m, idx) => {
+                        rows.push({ id: `btn_faq_${idx}`, title: m.title.substring(0, 24) });
+                    });
+                    
+                    let payload = {
+                        messaging_product: `whatsapp`,
+                        to: from,
+                        type: `interactive`,
+                        interactive: {
+                            type: `list`,
+                            header: { type: `text`, text: `Menú Principal` },
+                            body: { text: tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}. ¿Cómo podemos ayudarte hoy?` },
+                            action: {
+                                button: `Ver opciones 👇`,
+                                sections: [{ title: `Opciones disponibles`, rows: rows.slice(0,10) }]
+                            }
+                        }
+                    };
+                    await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+                        method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                    });
+                };
+
+                const sendInteractiveButtons = async (text, buttons) => {
+                    let payload = {
+                        messaging_product: `whatsapp`,
+                        to: from,
+                        type: `interactive`,
+                        interactive: {
+                            type: `button`,
+                            body: { text: text },
+                            action: {
+                                buttons: buttons.map(b => ({ type: `reply`, reply: { id: b.id, title: b.title } }))
+                            }
+                        }
+                    };
+                    await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+                        method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                    });
+                    await logMessage(tenant.id, from, 'outbound', 'interactive', text);
+                };
+
+                if (msgObj.type === `text`) {
+                    let text = user_message.toLowerCase();
+
+                    // --- PILAR 4: HANDOFF A HUMANO (Por texto) ---
+                    if (text.includes(`asesor`) || text.includes(`humano`)) {
+                        chatCache.set(cacheKey, { muted_until: Date.now() + 2 * 60 * 60 * 1000 }, 7200); // 2 horas
+                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `👨‍💼 *Conectando con un asesor...*
+
+He notificado a nuestro equipo. Un asesor humano leerá este chat y te responderá a la brevedad. (El bot se pausará temporalmente).`);
+                        
+                        // Pasar sesión a humano en DB
+                        const sessionResult = await pool.query(`SELECT id FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
+                        if (sessionResult.rows.length > 0) {
+                            await pool.query(`UPDATE chat_sessions SET status = 'humano' WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
+                        } else {
+                            await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status, platform) VALUES ($1, $2, 'humano', 'whatsapp')`, [tenant.id, from]);
+                        }
+                        return res.sendStatus(200);
+                    }
+
+                    // --- PILAR 1: MÁQUINA DE ESTADOS (CARRITO) ---
+                    if (state.step === 'awaiting_quantity') {
+                        let cart = state.cart || [];
+                        cart.push({ product: state.product, quantity: user_message });
+                        
+                        chatCache.set(cacheKey, { step: 'cart_decision', cart: cart }, 3600);
+                        
+                        await sendInteractiveButtons(`🛒 *Producto añadido al carrito.*
+
+¿Deseas seguir comprando o finalizar tu pedido?`, [
+                            { id: `btn_add_more`, title: `🛍️ Seguir comprando` },
+                            { id: `btn_checkout`, title: `✅ Finalizar pedido` }
+                        ]);
+                        return res.sendStatus(200);
+                    } 
+                    else if (state.step === 'awaiting_address') {
+                        let cart = state.cart || [];
+                        chatCache.del(cacheKey);
+                        
+                        let cartSummary = cart.map(item => `📦 ${item.quantity}x ${item.product}`).join(``);
+                        let finalMsg = `✅ *¡Pedido registrado con éxito!*
+
+*Resumen de tu pedido:*
+${cartSummary}
+📍 Dirección: ${user_message}
+
+Un asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
+                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg);
+                        
+                        // Insert into orders
+                        await pool.query(
+                            `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address) VALUES ($1, $2, $3, $4)`,
+                            [tenant.id, from, JSON.stringify(cart), user_message]
+                        );
+                        
+                        // Pasar a humano
+                        const sessionResult = await pool.query(`SELECT id FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
+                        if (sessionResult.rows.length > 0) {
+                            await pool.query(`UPDATE chat_sessions SET status = 'humano' WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
+                        } else {
+                            await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status, platform) VALUES ($1, $2, 'humano', 'whatsapp')`, [tenant.id, from]);
+                        }
+                        return res.sendStatus(200);
+                    }
+
+                    // --- PILAR 2: GATILLOS DE PALABRAS CLAVE ---
+                    let rules = [];
+                    try {
+                        rules = JSON.parse(tenant.business_rules || `[]`);
+                    } catch(e) {}
+                    
+                    let matchedRule = rules.find(r => r.q && r.q.length >= 3 && text.includes(r.q.toLowerCase()));
+                    if (matchedRule) {
+                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, matchedRule.a);
+                        await sendInteractiveButtons(`¿Puedo ayudarte con algo más?`, [
+                            { id: `btn_main_menu`, title: `🔙 Menú Principal` }
+                        ]);
+                        return res.sendStatus(200);
+                    }
+
+                    // --- PILAR 3: RUTAS DE ESCAPE (FALLBACK ANTI-FRUSTRACIÓN) ---
+                    chatCache.del(cacheKey);
+                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `No te comprendí muy bien 😅. Para ayudarte rápido, por favor selecciona una de nuestras opciones:`);
+                    await sendMainMenu();
+                    return res.sendStatus(200);
+                }
+
+                if (msgObj.type === `interactive`) {
+                    let btnId = ``;
+                    let btnTitle = ``;
+                    if (msgObj.interactive.type === `list_reply`) {
+                        btnId = msgObj.interactive.list_reply.id;
+                        btnTitle = msgObj.interactive.list_reply.title;
+                    } else if (msgObj.interactive.type === `button_reply`) {
+                        btnId = msgObj.interactive.button_reply.id;
+                        btnTitle = msgObj.interactive.button_reply.title;
+                    }
+
+                    if (btnId === `btn_main_menu` || btnId === `btn_catalogo`) {
+                        chatCache.del(cacheKey);
+                        if (btnId === `btn_catalogo`) {
+                            await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
+                        } else {
+                            await sendMainMenu();
+                        }
+                    } else if (btnId === `btn_add_more`) {
+                        chatCache.set(cacheKey, { step: 'adding_more', cart: state.cart || [] }, 3600);
+                        await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
+                    } else if (btnId === `btn_checkout`) {
+                        chatCache.set(cacheKey, { step: 'awaiting_address', cart: state.cart || [] }, 3600);
+                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Excelente elección! 🌟\n\n¿Cuántas unidades deseas llevar? (Responde con un número)`);
+                    } else if (btnId.startsWith(`btn_faq_`)) {
+                        let menus = tenant.tier1_menu || [];
+                        let idx = parseInt(btnId.replace(`btn_faq_`, ``));
+                        if (menus[idx]) {
+                            if (menus[idx].image_url) {
+                                await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, menus[idx].image_url, menus[idx].response);
+                            } else {
+                                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, menus[idx].response, tenant.id);
+                            }
+                            // Siempre mandar el escape después de un FAQ
+                            await sendInteractiveButtons(`¿Qué más deseas hacer?`, [
+                                { id: `btn_main_menu`, title: `🔙 Menú Principal` }
+                            ]);
+                        }
+                    } else if (btnId.startsWith(`prod_`)) {
+                        let prodId = btnId.replace(`prod_`, ``);
+                        let productoElegido = btnTitle;
+                        
+                        try {
+                            const pRes = await pool.query('SELECT image_url FROM products WHERE id = $1', [prodId]);
+                            if (pRes.rows.length > 0 && pRes.rows[0].image_url) {
+                                await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, pRes.rows[0].image_url, `Seleccionaste: *${productoElegido}*`);
+                            }
+                        } catch(e) { console.error(`Error buscando foto de producto`, e); }
+
+                        chatCache.set(cacheKey, { step: 'awaiting_quantity', product: productoElegido, cart: state.cart || [] }, 3600);
+                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Excelente elección! 🌟\n\n¿Cuántas unidades deseas llevar? (Responde con un número)`);
+
+                    } else {
+                        // Fallback fallback
+                        await sendMainMenu();
+                    }
+                }
+} else if (tenant.bot_tier >= 2) {
+                await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name, tenant.system_prompt, user_message);
+            }
+        }
+        res.sendStatus(200); 
+    } catch (error) { res.sendStatus(500); }
+});
+
+
+// ==========================================
+
+// ==========================================
+// ENDPOINTS DE LIVE CHAT
+// ==========================================
+
+app.get('/api/tenant/:id/chats', async (req, res) => {
+    try {
+        // Obtenemos el último mensaje por cada cliente
+        const result = await pool.query(`
+            SELECT customer_phone, 
+                   MAX(created_at) as last_activity
+            FROM messages 
+            WHERE tenant_id = $1 
+            GROUP BY customer_phone 
+            ORDER BY last_activity DESC
+        `, [req.params.id]);
+        res.json(result.rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: `Error interno` });
+    }
+});
+
+app.get('/api/tenant/:id/chats/:phone', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT * FROM messages WHERE tenant_id = $1 AND customer_phone = $2 ORDER BY created_at ASC`, 
+            [req.params.id, req.params.phone]
+        );
+        res.json(result.rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: `Error interno` });
+    }
+});
+
+app.post('/api/tenant/:id/chats/:phone/send', async (req, res) => {
+    try {
+        const { text } = req.body;
+        const tenant_id = req.params.id;
+        const to = req.params.phone;
+
+        const tenantRes = await pool.query('SELECT whatsapp_token, whatsapp_phone_id FROM tenants WHERE id = $1', [tenant_id]);
+        if (tenantRes.rows.length === 0) return res.status(404).json({ error: `Tenant no encontrado` });
+        
+        const tenant = tenantRes.rows[0];
+
+        // Send via Meta API
+        await fetch(`https://graph.facebook.com/v19.0/${tenant.whatsapp_phone_id}/messages`, {
+            method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messaging_product: "whatsapp", to: to, type: "text", text: { body: text } })
+        });
+
+        // Log message
+        await pool.query(
+            `INSERT INTO messages (tenant_id, customer_phone, direction, message_type, content) VALUES ($1, $2, $3, $4, $5)`,
+            [tenant_id, to, 'outbound', 'text', text]
+        );
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: `Error enviando mensaje` });
+    }
+});
+
+// ENDPOINTS DE PEDIDOS (ORDERS)
+// ==========================================
+
+app.get('/api/tenant/:id/orders', async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT * FROM orders WHERE tenant_id = $1 ORDER BY created_at DESC`, 
+            [req.params.id]
+        );
+        res.json(result.rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: `Error interno al obtener pedidos` });
+    }
+});
+
+app.put('/api/orders/:id/status', async (req, res) => {
+    try {
+        const { status } = req.body;
+        await pool.query(`UPDATE orders SET status = $1 WHERE id = $2`, [status, req.params.id]);
+        res.json({ message: `Estado actualizado exitosamente` });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: `Error interno al actualizar pedido` });
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Motor central SaaS iniciado en el puerto ${PORT}`));

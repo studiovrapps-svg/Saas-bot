@@ -1,23 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
-import React, { useState, useEffect, useRef } from 'react';
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useState, useEffect, useRef } from 'react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-
-// Interceptor global para inyectar el token JWT en todas las peticiones a la API
-const originalFetch = window.fetch;
-window.fetch = async function () {
-    let [resource, config] = arguments;
-    if (typeof resource === 'string' && resource.includes('/api/')) {
-        config = config || {};
-        config.headers = config.headers || {};
-        const token = localStorage.getItem('token');
-        if (token) {
-            config.headers['Authorization'] = `Bearer ${token}`;
-        }
-    }
-    return originalFetch.apply(this, [resource, config]);
-};
 
 function Login() {
   const [email, setEmail] = useState('');
@@ -86,7 +71,12 @@ function Login() {
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
         </button>
 
-
+        <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Acceso Administrativo</p>
+          <div className="inline-block bg-gray-50 px-4 py-2 rounded-lg text-xs text-gray-600 font-mono border border-gray-100">
+            admin@admin.com <br/> admin123
+          </div>
+        </div>
       </form>
     </div>
   );
@@ -96,175 +86,38 @@ function SuperAdminDashboard() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [clientes, setClientes] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [activeAdminTab, setActiveAdminTab] = useState("metricas");
+  const [activeAdminTab, setActiveAdminTab] = useState("inquilinos");
   const [tenantFilter, setTenantFilter] = useState("activos");
-  const [adminStats, setAdminStats] = useState(null);
-  const [globalPricing, setGlobalPricing] = useState({ plans: { 1: 299, 2: 499, 3: 999 }, modules: { orders: 200, inbox: 150, crm: 100, campaigns: 250 } });
-  const [systemLogs, setSystemLogs] = useState([]);
-  const [toast, setToast] = useState(null);
-  
-  const showToast = (message, type = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
   
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [unlockApi, setUnlockApi] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [breakdownModal, setBreakdownModal] = useState({ isOpen: false, type: 'mrr' });
   
   const [editData, setEditData] = useState(null);
   const [editTemplateData, setEditTemplateData] = useState(null);
   
-  const [formData, setFormData] = useState({ name: "", email: "", password: "", bot_tier: 1, monthly_price: 0, template_id: "", features: {} });
+  const [formData, setFormData] = useState({ name: "", email: "", password: "", bot_tier: 1, template_id: "" });
   const [templateFormData, setTemplateFormData] = useState({ name: "", bot_tier: 1, system_prompt: "", business_rules: "[]" });
   
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => { 
-    if(localStorage.getItem("role") !== "superadmin") {
+    if(localStorage.getItem("role") !== "admin") {
         localStorage.clear();
         navigate("/");
         return;
     }
     fetchClientes();
     fetchTemplates();
-    fetchAdminStats();
-    fetchGlobalPricing();
   }, []);
-
-  const fetchSystemLogs = async () => {
-    try {
-      const res = await fetch(`${API_URL}/admin/logs`);
-      if (res.ok) {
-        const data = await res.json();
-        setSystemLogs(Array.isArray(data) ? data : []);
-      }
-    } catch (error) { console.error(error); }
-  };
-
-  const fetchGlobalPricing = async () => {
-    try {
-      const res = await fetch(`${API_URL}/admin/pricing`);
-      if (res.ok) {
-        const data = await res.json();
-        setGlobalPricing(data);
-      }
-    } catch (error) { console.error(error); }
-  };
-
-  const handlePrintBreakdown = () => {
-    const tableContent = document.getElementById('print-mrr-table').outerHTML;
-    
-    // Crear iframe oculto para imprimir sin abrir nueva ventana
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'absolute';
-    iframe.style.width = '0px';
-    iframe.style.height = '0px';
-    iframe.style.border = 'none';
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    
-    let title = "Hoja Contable (MRR)";
-    let subtitle = "Desglose de Ingresos Recurrentes";
-    if (breakdownModal.type === 'cost') { title = "Reporte de Costos IA"; subtitle = "Desglose de Costo Operativo por Inquilino"; }
-    else if (breakdownModal.type === 'margin') { title = "Reporte de Rentabilidad"; subtitle = "Desglose de Márgenes de Ganancia"; }
-    else if (breakdownModal.type === 'interactions') { title = "Reporte de Tráfico"; subtitle = "Volumen de Interacciones por Inquilino"; }
-
-    doc.write(`
-      <html>
-        <head>
-          <title>${title}</title>
-          <script src="https://cdn.tailwindcss.com"></script>
-          <style>
-            @media print {
-              @page { margin: 0; }
-              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; padding: 2cm !important; }
-              .print\\:hidden { display: none !important; }
-            }
-          </style>
-        </head>
-        <body class="p-8">
-          <div class="mb-8 border-b-4 border-indigo-600 pb-6 flex justify-between items-end">
-              <div>
-                  <h1 class="text-3xl font-black text-indigo-600 tracking-tighter">SAAS BOT</h1>
-                  <p class="text-sm text-gray-500 font-medium tracking-widest uppercase mt-1">Plataforma de Inteligencia Artificial</p>
-                  <div class="mt-4 text-xs text-gray-500 space-y-0.5">
-                      <p>Ciudad de Guatemala, Guatemala</p>
-                      <p>soporte@saasbot.com | +502 0000-0000</p>
-                  </div>
-              </div>
-              <div class="text-right">
-                  <h2 class="text-2xl font-bold text-gray-800">${title}</h2>
-                  <p class="text-sm text-gray-500 mt-1">${subtitle}</p>
-                  <div class="mt-4 text-xs font-semibold text-gray-700 bg-gray-100 inline-block px-3 py-1.5 rounded-lg border border-gray-200">
-                      Emitido el: ${new Date().toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })}
-                  </div>
-              </div>
-          </div>
-          ${tableContent}
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    // Dar tiempo a Tailwind para procesar los estilos y luego lanzar print nativo
-    setTimeout(() => {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-      // Limpiar iframe después de imprimir
-      setTimeout(() => {
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
-        }
-      }, 2000);
-    }, 800);
-  };
-
-  const handleSavePricing = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/admin/pricing`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(globalPricing)
-      });
-      if (res.ok) {
-        showToast("Precios actualizados correctamente");
-        fetchAdminStats();
-      }
-    } catch (error) { 
-      console.error(error);
-      showToast("Error al guardar", "error");
-    }
-    setLoading(false);
-  };
-
-  const fetchAdminStats = async () => {
-    try {
-      const res = await fetch(`${API_URL}/admin/stats`);
-      const data = await res.json();
-      if(res.ok) {
-        setAdminStats(data);
-      } else {
-        console.error("Error fetching admin stats:", data);
-        setAdminStats({ error: true }); // Fallback to avoid infinite loading
-      }
-    } catch (error) { 
-      console.error("Network error fetching admin stats:", error);
-      setAdminStats({ error: true });
-    }
-  };
 
   const fetchClientes = async () => {
     try {
       const res = await fetch(`${API_URL}/clientes`);
       const data = await res.json();
-      setClientes(Array.isArray(data) ? data : []);
+      setClientes(data);
     } catch (error) { console.error(error); }
   };
 
@@ -272,7 +125,7 @@ function SuperAdminDashboard() {
       try {
           const res = await fetch(`${API_URL}/templates`);
           const data = await res.json();
-          setTemplates(Array.isArray(data) ? data : []);
+          setTemplates(data);
       } catch (error) { console.error(error); }
   };
 
@@ -281,23 +134,17 @@ function SuperAdminDashboard() {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/clientes`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify(formData)
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData)
       });
       if (res.ok) {
         setShowModal(false);
-        setFormData({ name: "", email: "", password: "", bot_tier: 1, monthly_price: 0, template_id: "", features: {} });
+        setFormData({ name: "", email: "", password: "", bot_tier: 1, template_id: "" });
         fetchClientes();
-        fetchAdminStats();
-        showToast("Cliente creado exitosamente");
       } else {
         const data = await res.json();
-        showToast(data.error || "Error al crear", "error");
+        alert(data.error);
       }
-    } catch (error) { 
-      console.error(error); 
-      showToast("Error de conexión", "error");
-    }
+    } catch (error) { console.error(error); }
     setLoading(false);
   };
 
@@ -319,7 +166,6 @@ function SuperAdminDashboard() {
       if (res.ok) {
         setShowEditModal(false);
         fetchClientes();
-        fetchAdminStats();
       }
     } catch (error) { console.error(error); }
     setLoading(false);
@@ -352,18 +198,8 @@ function SuperAdminDashboard() {
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden relative">
-      {toast && (
-        <div className={`fixed bottom-6 right-6 z-[9999] px-6 py-4 rounded-xl shadow-2xl border text-sm font-bold flex items-center gap-3 transition-all animate-fade-in-up ${toast.type === 'success' ? 'bg-[#f0fdf4] text-[#166534] border-[#bbf7d0]' : 'bg-[#fef2f2] text-[#991b1b] border-[#fecaca]'}`}>
-          {toast.type === 'success' ? (
-             <svg className="w-5 h-5 text-[#22c55e]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-          ) : (
-             <svg className="w-5 h-5 text-[#ef4444]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-          )}
-          {toast.message}
-        </div>
-      )}
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
-      <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
+      <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:trangray-x-0 ${showMobileMenu ? "trangray-x-0" : "-trangray-x-full"}`}>
         <div className="p-6 border-b border-gray-100 flex items-center gap-3">
           <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
@@ -375,25 +211,13 @@ function SuperAdminDashboard() {
         </div>
         
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
-          <div onClick={() => setActiveAdminTab("metricas")} className={`${activeAdminTab === "metricas" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>
-            <span className="font-semibold text-sm">Métricas</span>
-          </div>
           <div onClick={() => setActiveAdminTab("inquilinos")} className={`${activeAdminTab === "inquilinos" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
             <span className="font-semibold text-sm">Inquilinos</span>
           </div>
           <div onClick={() => setActiveAdminTab("plantillas")} className={`${activeAdminTab === "plantillas" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" /></svg>
-            <span className="font-semibold text-sm">Plantillas IA</span>
-          </div>
-          <div onClick={() => setActiveAdminTab("precios")} className={`${activeAdminTab === "precios" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span className="font-semibold text-sm">Precios Globales</span>
-          </div>
-          <div onClick={() => { setActiveAdminTab("logs"); fetchSystemLogs(); }} className={`${activeAdminTab === "logs" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            <span className="font-semibold text-sm">Logs del Sistema</span>
+            <span className="font-semibold text-sm">Plantillas Base</span>
           </div>
         </div>
         <div className="p-4 border-t border-gray-100">
@@ -413,114 +237,6 @@ function SuperAdminDashboard() {
         </div>
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
           <div className="max-w-7xl mx-auto">
-            {activeAdminTab === "metricas" && !adminStats && (
-                <div className="flex justify-center items-center h-64">
-                    <p className="text-gray-500 font-medium">Cargando métricas...</p>
-                </div>
-            )}
-            
-            {activeAdminTab === "metricas" && adminStats?.error && (
-                <div className="flex justify-center items-center h-64 bg-red-50 border border-red-100 rounded-xl">
-                    <p className="text-red-500 font-medium">Error cargando métricas. Revisa la consola o asegúrate que el backend está corriendo.</p>
-                </div>
-            )}
-            
-            {activeAdminTab === "metricas" && adminStats && !adminStats.error && (
-                <>
-                    <div className="mb-8">
-                        <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Rentabilidad y Métricas Globales</h2>
-                        <p className="text-gray-500 mt-1 text-sm">Monitoriza la salud financiera y el rendimiento de la Inteligencia Artificial.</p>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8">
-                        <div onClick={() => setBreakdownModal({ isOpen: true, type: 'mrr' })} className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col cursor-pointer hover:shadow-md transition-shadow hover:border-blue-200">
-                            <div className="flex items-center gap-2 mb-2 md:mb-3">
-                                <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                <span className="text-[10px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider truncate">Ingresos Mensuales</span>
-                            </div>
-                            <span className="text-xl md:text-3xl font-bold text-gray-900 tracking-tight">Q {(adminStats.total_mrr_gtq || 0).toFixed(2)}</span>
-                        </div>
-                        <div onClick={() => setBreakdownModal({ isOpen: true, type: 'cost' })} className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col cursor-pointer hover:shadow-md transition-shadow hover:border-blue-200">
-                            <div className="flex items-center gap-2 mb-2 md:mb-3">
-                                <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                <span className="text-[10px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider truncate">Costo Operativo</span>
-                            </div>
-                            <span className="text-xl md:text-3xl font-bold text-gray-900 tracking-tight">
-                                Q {(adminStats.total_cost_gtq || 0).toFixed(2)}
-                            </span>
-                            <span className="text-[10px] md:text-xs text-gray-400 font-medium mt-1">USD {(adminStats.total_cost_usd || 0).toFixed(2)}</span>
-                        </div>
-                        <div onClick={() => setBreakdownModal({ isOpen: true, type: 'margin' })} className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col cursor-pointer hover:shadow-md transition-shadow hover:border-blue-200">
-                            <div className="flex items-center gap-2 mb-2 md:mb-3">
-                                <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                                <span className="text-[10px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider truncate">Margen Ganancia</span>
-                            </div>
-                            <span className="text-xl md:text-3xl font-bold text-green-600 tracking-tight">Q {((adminStats.total_mrr_gtq || 0) - (adminStats.total_cost_gtq || 0)).toFixed(2)}</span>
-                        </div>
-                        <div onClick={() => setBreakdownModal({ isOpen: true, type: 'interactions' })} className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col cursor-pointer hover:shadow-md transition-shadow hover:border-blue-200">
-                            <div className="flex items-center gap-2 mb-2 md:mb-3">
-                                <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
-                                <span className="text-[10px] md:text-xs font-semibold text-gray-500 uppercase tracking-wider truncate">Interacciones</span>
-                            </div>
-                            <span className="text-xl md:text-3xl font-bold text-blue-600 tracking-tight">{adminStats.total_interactions || 0}</span>
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                            <h3 className="text-lg font-bold text-gray-900 mb-6 tracking-tight">Evolución de Consumo (7 Días)</h3>
-                            {adminStats.daily_usage.length > 0 ? (
-                                <div className="h-72 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={adminStats.daily_usage} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                            <defs>
-                                                <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#000000" stopOpacity={0.1}/>
-                                                    <stop offset="95%" stopColor="#000000" stopOpacity={0}/>
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                                            <XAxis dataKey="date" tick={{fontSize: 12, fill: '#6b7280'}} axisLine={false} tickLine={false} />
-                                            <YAxis tick={{fontSize: 12, fill: '#6b7280'}} axisLine={false} tickLine={false} tickFormatter={(value) => `Q ${value}`} />
-                                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }} formatter={(value) => [`Q ${value.toFixed(2)}`, "Costo"]} />
-                                            <Area type="monotone" dataKey="cost_gtq" name="Costo (Q)" stroke="#000000" strokeWidth={3} fillOpacity={1} fill="url(#colorCost)" />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            ) : (
-                                <div className="h-72 w-full flex items-center justify-center bg-gray-50 rounded-xl border border-gray-100">
-                                    <p className="text-gray-400 font-medium">No hay suficientes datos de consumo</p>
-                                </div>
-                            )}
-                        </div>
-                        
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                            <h3 className="text-lg font-bold text-gray-900 mb-4 tracking-tight">Inquilinos con Mayor Consumo</h3>
-                            <div className="space-y-4">
-                                {adminStats.top_tenants.length === 0 ? (
-                                    <p className="text-sm text-gray-500 italic">No hay consumos registrados.</p>
-                                ) : (
-                                    adminStats.top_tenants.map((t, idx) => (
-                                        <div key={idx} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-lg transition">
-                                            <div>
-                                                <p className="font-bold text-gray-800">{t.name}</p>
-                                                <p className="text-xs text-gray-500">{t.tokens.toLocaleString()} tokens</p>
-                                            </div>
-                                            <div className="flex flex-col items-end">
-                                                <div className="font-bold text-gray-900 bg-gray-100 px-3 py-1 rounded-full text-sm">
-                                                    Q {(t.cost_gtq || 0).toFixed(2)}
-                                                </div>
-                                                <p className="text-[10px] text-gray-400 mt-1">USD {(t.cost_usd || 0).toFixed(4)}</p>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </>
-            )}
-
             {activeAdminTab === "inquilinos" && (
                 <>
                     <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center">
@@ -580,11 +296,7 @@ function SuperAdminDashboard() {
                                                 </td>
                                                 <td className="p-4 border-b">
                                                     <div className="flex gap-4 items-center">
-                                                          <button onClick={() => { 
-                                                            setEditData(c); 
-                                                            setShowEditModal(true); 
-                                                            setUnlockApi(false); 
-                                                        }} className="text-gray-500 hover:text-black transition" title="Configurar">
+                                                        <button onClick={() => { setEditData(c); setShowEditModal(true); setUnlockApi(false); }} className="text-gray-500 hover:text-black transition" title="Configurar">
                                                           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                                                         </button>
                                                         <Link to={`/dashboard/${c.id}`} className="text-gray-500 hover:text-black transition" title="Ver Catálogo">
@@ -635,23 +347,10 @@ function SuperAdminDashboard() {
                                               <button onClick={() => window.open(`/dashboard/${c.id}`, '_blank')} className="text-gray-500 hover:text-gray-900 p-1.5 rounded bg-gray-50 hover:bg-gray-100 transition" title="Ir al Panel">
                                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                                               </button>
-                                              <button onClick={() => { 
-                                                  setEditData(c); 
-                                                  setFormData({name: c.name, email: c.email, password: "", bot_tier: c.bot_tier, template_id: c.template_id || ""}); 
-                                                  setShowEditModal(true); 
-                                                  setUnlockApi(false); 
-                                              }} className="text-gray-500 hover:text-green-600 p-1.5 rounded bg-gray-50 hover:bg-green-50 transition" title="Editar">
+                                              <button onClick={() => { setEditData(c); setFormData({name: c.name, email: c.email, password: "", bot_tier: c.bot_tier, template_id: c.template_id || ""}); setShowEditModal(true); setUnlockApi(false); }} className="text-gray-500 hover:text-green-600 p-1.5 rounded bg-gray-50 hover:bg-green-50 transition" title="Editar">
                                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                                               </button>
-                                              <button onClick={async () => {
-                                                  if(window.confirm("¿Seguro que deseas eliminar este inquilino?")) {
-                                                      try {
-                                                          await fetch(`${API_URL}/clientes/${c.id}`, { method: 'DELETE' });
-                                                          fetchClientes();
-                                                          fetchAdminStats();
-                                                      } catch (e) { console.error(e); }
-                                                  }
-                                              }} className="text-gray-500 hover:text-red-600 p-1.5 rounded bg-gray-50 hover:bg-red-50 transition" title="Eliminar">
+                                              <button onClick={() => handleDelete(c.id)} className="text-gray-500 hover:text-red-600 p-1.5 rounded bg-gray-50 hover:bg-red-50 transition" title="Eliminar">
                                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                               </button>
                                           </div>
@@ -699,305 +398,13 @@ function SuperAdminDashboard() {
                     </div>
                 </>
             )}
-
-            {activeAdminTab === "precios" && (
-                <div className="max-w-2xl mx-auto">
-                    <div className="mb-6">
-                        <h2 className="text-2xl font-bold text-gray-900">Precios Globales (Suscripciones y Módulos)</h2>
-                        <p className="text-gray-500 mt-1 text-sm">Configura el costo en Quetzales (Q) base por cada nivel de suscripción y módulo. Estos valores aplican de forma uniforme y automática para calcular el MRR de todos los inquilinos.</p>
-                    </div>
-
-                    <form onSubmit={handleSavePricing} className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-                        <h3 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Planes Base</h3>
-                        <div className="space-y-4 mb-8">
-                            <div className="flex items-center justify-between">
-                                <label className="font-semibold text-gray-700">Nivel 1</label>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-400 font-bold">Q</span>
-                                    <input type="number" required value={globalPricing.plans?.[1] || 0} onChange={e => setGlobalPricing({...globalPricing, plans: {...globalPricing.plans, 1: Number(e.target.value)}})} className="w-24 border p-2 rounded-lg text-right bg-gray-50 outline-none focus:border-black font-bold" />
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <label className="font-semibold text-gray-700">Nivel 2</label>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-400 font-bold">Q</span>
-                                    <input type="number" required value={globalPricing.plans?.[2] || 0} onChange={e => setGlobalPricing({...globalPricing, plans: {...globalPricing.plans, 2: Number(e.target.value)}})} className="w-24 border p-2 rounded-lg text-right bg-gray-50 outline-none focus:border-black font-bold" />
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <label className="font-semibold text-gray-700">Nivel 3</label>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-400 font-bold">Q</span>
-                                    <input type="number" required value={globalPricing.plans?.[3] || 0} onChange={e => setGlobalPricing({...globalPricing, plans: {...globalPricing.plans, 3: Number(e.target.value)}})} className="w-24 border p-2 rounded-lg text-right bg-gray-50 outline-none focus:border-black font-bold" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <h3 className="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Módulos Extra</h3>
-                        <div className="space-y-4 mb-8">
-                            <div className="flex items-center justify-between">
-                                <span className="font-semibold text-gray-700">Gestor de Pedidos</span>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-400 font-bold">Q</span>
-                                    <input type="number" required value={globalPricing.modules?.orders || 0} onChange={e => setGlobalPricing({...globalPricing, modules: {...globalPricing.modules, orders: Number(e.target.value)}})} className="w-24 border p-2 rounded-lg text-right bg-gray-50 outline-none focus:border-black font-bold" />
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="font-semibold text-gray-700">Bandeja Multi-Agente</span>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-400 font-bold">Q</span>
-                                    <input type="number" required value={globalPricing.modules?.inbox || 0} onChange={e => setGlobalPricing({...globalPricing, modules: {...globalPricing.modules, inbox: Number(e.target.value)}})} className="w-24 border p-2 rounded-lg text-right bg-gray-50 outline-none focus:border-black font-bold" />
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="font-semibold text-gray-700">CRM Automático</span>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-400 font-bold">Q</span>
-                                    <input type="number" required value={globalPricing.modules?.crm || 0} onChange={e => setGlobalPricing({...globalPricing, modules: {...globalPricing.modules, crm: Number(e.target.value)}})} className="w-24 border p-2 rounded-lg text-right bg-gray-50 outline-none focus:border-black font-bold" />
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="font-semibold text-gray-700">Campañas Masivas</span>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-gray-400 font-bold">Q</span>
-                                    <input type="number" required value={globalPricing.modules?.campaigns || 0} onChange={e => setGlobalPricing({...globalPricing, modules: {...globalPricing.modules, campaigns: Number(e.target.value)}})} className="w-24 border p-2 rounded-lg text-right bg-gray-50 outline-none focus:border-black font-bold" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <button type="submit" disabled={loading} className="w-full py-3 bg-black text-white rounded-xl font-bold hover:bg-gray-800 transition">
-                            {loading ? "Guardando..." : "Guardar Precios Globales"}
-                        </button>
-                    </form>
-                </div>
-            )}
-
-            {activeAdminTab === "logs" && (
-                <div className="max-w-6xl mx-auto flex flex-col h-full">
-                    <div className="mb-6 flex justify-between items-end">
-                        <div>
-                            <h2 className="text-2xl font-bold text-gray-900">Logs del Sistema</h2>
-                            <p className="text-gray-500 mt-1 text-sm">Monitorea en tiempo real errores de Webhooks, caídas de API de Meta o fallos internos para soporte proactivo.</p>
-                        </div>
-                        <button onClick={fetchSystemLogs} className="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-lg font-semibold hover:bg-gray-50 flex items-center gap-2 text-sm transition">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                            Refrescar
-                        </button>
-                    </div>
-
-                    <div className="flex-1 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
-                        <div className="overflow-auto flex-1">
-                            <table className="w-full text-left border-collapse text-sm">
-                                <thead className="bg-gray-50 sticky top-0 border-b border-gray-100 z-10">
-                                    <tr>
-                                        <th className="p-4 font-bold text-gray-500 uppercase tracking-wider text-xs">Fecha</th>
-                                        <th className="p-4 font-bold text-gray-500 uppercase tracking-wider text-xs">Nivel</th>
-                                        <th className="p-4 font-bold text-gray-500 uppercase tracking-wider text-xs">Inquilino</th>
-                                        <th className="p-4 font-bold text-gray-500 uppercase tracking-wider text-xs">Tipo</th>
-                                        <th className="p-4 font-bold text-gray-500 uppercase tracking-wider text-xs">Mensaje</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {systemLogs.length === 0 ? (
-                                        <tr>
-                                            <td colSpan="5" className="p-8 text-center text-gray-400 italic">No hay logs registrados todavía.</td>
-                                        </tr>
-                                    ) : (
-                                        systemLogs.map(log => (
-                                            <tr key={log.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                                                <td className="p-4 text-gray-500 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
-                                                <td className="p-4">
-                                                    <span className={`px-2 py-1 rounded text-xs font-bold ${log.level === 'ERROR' ? 'bg-red-100 text-red-700' : log.level === 'WARNING' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                        {log.level}
-                                                    </span>
-                                                </td>
-                                                <td className="p-4 font-semibold text-gray-900">{log.tenant_name || 'Sistema'}</td>
-                                                <td className="p-4 text-gray-500 font-mono text-xs">{log.event_type}</td>
-                                                <td className="p-4">
-                                                    <div className="text-gray-900 font-medium">{log.message}</div>
-                                                    {log.details && Object.keys(log.details).length > 0 && (
-                                                        <pre className="mt-1 text-[10px] text-gray-500 bg-gray-100 p-2 rounded overflow-x-auto max-w-md">
-                                                            {JSON.stringify(log.details, null, 2)}
-                                                        </pre>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
       </div>
-
-      {/* Modal Hoja Contable Genérico */}
-      {breakdownModal.isOpen && (
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setBreakdownModal({ isOpen: false, type: null })}>
-            <div className="bg-white p-6 md:p-8 rounded-2xl shadow-xl w-full max-w-2xl border border-gray-100 max-h-[95vh] overflow-y-auto scrollbar-hide" onClick={(e) => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-6 border-b pb-4">
-                    <div>
-                        <h2 className="text-xl font-bold text-gray-900">
-                            {breakdownModal.type === 'mrr' ? 'Hoja Contable: Ingresos Mensuales' : 
-                             breakdownModal.type === 'cost' ? 'Reporte: Costo Operativo' :
-                             breakdownModal.type === 'margin' ? 'Reporte: Margen de Ganancia' : 'Reporte: Interacciones'}
-                        </h2>
-                        <p className="text-sm text-gray-500 mt-1">
-                            {breakdownModal.type === 'mrr' ? 'Desglose de cálculo del MRR por inquilino' : 'Desglose detallado por inquilino'}
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={handlePrintBreakdown} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-colors text-sm">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                            Imprimir
-                        </button>
-                        <button onClick={() => setBreakdownModal({ isOpen: false, type: null })} className="text-gray-400 hover:text-gray-700 bg-gray-100 p-2.5 rounded-full transition-colors">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-                </div>
-                
-                <div className="overflow-x-auto">
-                    {(() => {
-                        const data = adminStats?.tenant_breakdown || [];
-                        
-                        if (breakdownModal.type === 'mrr') {
-                            return (
-                                <table id="print-mrr-table" className="w-full text-left border-collapse text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-xs">
-                                            <th className="py-3 px-4 font-semibold">Cliente</th>
-                                            <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Plan Base</th>
-                                            <th className="py-3 px-4 font-semibold">Módulos Extra</th>
-                                            <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Módulos (Total)</th>
-                                            <th className="py-3 px-4 font-bold text-gray-900 text-right whitespace-nowrap">Subtotal</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {data.length > 0 ? data.map((row, idx) => (
-                                            <tr key={idx} className="hover:bg-gray-50 transition">
-                                                <td className="py-3 px-4 font-bold text-gray-800">{row.tenant_name}</td>
-                                                <td className="py-3 px-4 text-right text-gray-600 whitespace-nowrap">Q {row.plan_cost.toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-gray-500 text-xs leading-relaxed">
-                                                    {row.modules && row.modules.length > 0 ? row.modules.join(', ') : <span className="text-gray-300 italic">Ninguno</span>}
-                                                </td>
-                                                <td className="py-3 px-4 text-right text-gray-600 whitespace-nowrap">Q {row.modules_cost.toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-right font-bold text-gray-900 whitespace-nowrap">Q {row.mrr_total.toFixed(2)}</td>
-                                            </tr>
-                                        )) : <tr><td colSpan="5" className="p-6 text-center text-gray-400 italic">No hay datos</td></tr>}
-                                    </tbody>
-                                    <tfoot className="bg-gray-50 border-t border-gray-200">
-                                        <tr>
-                                            <td colSpan="4" className="py-4 px-4 text-right font-bold text-gray-600 uppercase text-xs tracking-widest">Total Ingresos Recurrentes (MRR)</td>
-                                            <td className="py-4 px-4 text-right font-black text-xl text-blue-600 tracking-tight whitespace-nowrap">Q {(adminStats?.total_mrr_gtq || 0).toFixed(2)}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            );
-                        }
-                        
-                        if (breakdownModal.type === 'cost') {
-                            return (
-                                <table id="print-mrr-table" className="w-full text-left border-collapse text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-xs">
-                                            <th className="py-3 px-4 font-semibold">Cliente</th>
-                                            <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Costo (USD)</th>
-                                            <th className="py-3 px-4 font-bold text-gray-900 text-right whitespace-nowrap">Costo Operativo</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {data.length > 0 ? data.map((row, idx) => (
-                                            <tr key={idx} className="hover:bg-gray-50 transition">
-                                                <td className="py-3 px-4 font-bold text-gray-800">{row.tenant_name}</td>
-                                                <td className="py-3 px-4 text-right text-gray-600 whitespace-nowrap">USD {row.cost_usd.toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-right font-bold text-gray-900 whitespace-nowrap">Q {row.cost_gtq.toFixed(2)}</td>
-                                            </tr>
-                                        )) : <tr><td colSpan="3" className="p-6 text-center text-gray-400 italic">No hay datos</td></tr>}
-                                    </tbody>
-                                    <tfoot className="bg-gray-50 border-t border-gray-200">
-                                        <tr>
-                                            <td colSpan="2" className="py-4 px-4 text-right font-bold text-gray-600 uppercase text-xs tracking-widest">Costo Operativo Total</td>
-                                            <td className="py-4 px-4 text-right font-black text-xl text-blue-600 tracking-tight whitespace-nowrap">Q {(adminStats?.total_cost_gtq || 0).toFixed(2)}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            );
-                        }
-
-                        if (breakdownModal.type === 'margin') {
-                            return (
-                                <table id="print-mrr-table" className="w-full text-left border-collapse text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-xs">
-                                            <th className="py-3 px-4 font-semibold">Cliente</th>
-                                            <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Ingreso (MRR)</th>
-                                            <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Costo Operativo</th>
-                                            <th className="py-3 px-4 font-bold text-gray-900 text-right whitespace-nowrap">Margen Ganancia</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {data.length > 0 ? data.map((row, idx) => (
-                                            <tr key={idx} className="hover:bg-gray-50 transition">
-                                                <td className="py-3 px-4 font-bold text-gray-800">{row.tenant_name}</td>
-                                                <td className="py-3 px-4 text-right text-green-600 whitespace-nowrap">Q {row.mrr_total.toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-right text-red-500 whitespace-nowrap">Q {row.cost_gtq.toFixed(2)}</td>
-                                                <td className="py-3 px-4 text-right font-bold text-gray-900 whitespace-nowrap">Q {row.margin_gtq.toFixed(2)}</td>
-                                            </tr>
-                                        )) : <tr><td colSpan="4" className="p-6 text-center text-gray-400 italic">No hay datos</td></tr>}
-                                    </tbody>
-                                    <tfoot className="bg-gray-50 border-t border-gray-200">
-                                        <tr>
-                                            <td colSpan="3" className="py-4 px-4 text-right font-bold text-gray-600 uppercase text-xs tracking-widest">Ganancia Neta Total</td>
-                                            <td className="py-4 px-4 text-right font-black text-xl text-green-600 tracking-tight whitespace-nowrap">Q {((adminStats?.total_mrr_gtq || 0) - (adminStats?.total_cost_gtq || 0)).toFixed(2)}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            );
-                        }
-                        
-                        if (breakdownModal.type === 'interactions') {
-                            return (
-                                <table id="print-mrr-table" className="w-full text-left border-collapse text-sm">
-                                    <thead>
-                                        <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-xs">
-                                            <th className="py-3 px-4 font-semibold">Cliente</th>
-                                            <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Nivel de Bot</th>
-                                            <th className="py-3 px-4 font-bold text-gray-900 text-right whitespace-nowrap">Total Interacciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {data.length > 0 ? data.map((row, idx) => (
-                                            <tr key={idx} className="hover:bg-gray-50 transition">
-                                                <td className="py-3 px-4 font-bold text-gray-800">{row.tenant_name}</td>
-                                                <td className="py-3 px-4 text-right text-gray-600 whitespace-nowrap">Nivel {row.bot_tier}</td>
-                                                <td className="py-3 px-4 text-right font-bold text-gray-900 whitespace-nowrap">{row.interactions}</td>
-                                            </tr>
-                                        )) : <tr><td colSpan="3" className="p-6 text-center text-gray-400 italic">No hay datos</td></tr>}
-                                    </tbody>
-                                    <tfoot className="bg-gray-50 border-t border-gray-200">
-                                        <tr>
-                                            <td colSpan="2" className="py-4 px-4 text-right font-bold text-gray-600 uppercase text-xs tracking-widest">Tráfico Total Mensual</td>
-                                            <td className="py-4 px-4 text-right font-black text-xl text-blue-600 tracking-tight whitespace-nowrap">{adminStats?.total_interactions || 0}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            );
-                        }
-                        
-                        return null;
-                    })()}
-                </div>
-            </div>
-        </div>
-      )}
       
       {/* Modales Inquilinos */}
       {showModal && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100 max-h-[95vh] overflow-y-auto scrollbar-hide" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100" onClick={(e) => e.stopPropagation()}>
                 <h2 className="text-xl font-bold mb-6 text-gray-900">Registrar Cliente SaaS</h2>
                 <form onSubmit={handleCreate}>
                     <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Plantilla Base (Opcional)</label>
@@ -1016,8 +423,8 @@ function SuperAdminDashboard() {
                     <input type="text" required value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full border border-gray-200 p-2.5 rounded-xl bg-gray-50 mb-6 outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-sm text-sm" placeholder="123456" />
                     
                     <label className="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Plan de Suscripción</label>
-                    <select value={formData.bot_tier} onChange={(e) => setFormData({...formData, bot_tier: Number(e.target.value)})} className="w-full border border-gray-200 p-2.5 mb-5 rounded-xl outline-none bg-gray-50 text-sm focus:border-black">
-                        <option value={1}>Nivel 1 - Menú Básico</option>
+                    <select value={formData.bot_tier} onChange={(e) => setFormData({...formData, bot_tier: Number(e.target.value)})} className="w-full border border-gray-200 p-2.5 mb-8 rounded-xl outline-none bg-gray-50 text-sm focus:border-black">
+                        <option value={1}>Nivel 1 - Menú Básico (Catálogo S3)</option>
                         <option value={2}>Nivel 2 - Flujos Conversacionales (Groq)</option>
                         <option value={3}>Nivel 3 - IA Premium Libre</option>
                     </select>
@@ -1052,7 +459,7 @@ function SuperAdminDashboard() {
                     <input type="text" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} className="w-full border border-gray-200 p-2.5 rounded-xl bg-gray-50 mb-5 outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-sm text-sm" />
                     
                     <label className="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Plan de Suscripción</label>
-                    <select value={editData.bot_tier} onChange={e => setEditData({...editData, bot_tier: Number(e.target.value)})} className="w-full border border-gray-200 p-2.5 mb-5 rounded-xl outline-none bg-gray-50 text-sm focus:border-black">
+                    <select value={editData.bot_tier} onChange={e => setEditData({...editData, bot_tier: Number(e.target.value)})} className="w-full border border-gray-200 p-2.5 mb-6 rounded-xl outline-none bg-gray-50 text-sm focus:border-black">
                         <option value={1}>Nivel 1 - Menú Básico</option>
                         <option value={2}>Nivel 2 - Flujos IA (Groq)</option>
                         <option value={3}>Nivel 3 - IA Premium Libre</option>
@@ -1085,7 +492,7 @@ function SuperAdminDashboard() {
                         )}
                     </div>
 
-                      <div className="bg-gray-50 p-5 rounded-xl mb-6 border border-gray-200">
+                                          <div className="bg-gray-50 p-5 rounded-xl mb-6 border border-gray-200">
                           <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 text-sm">
                               <svg className="w-5 h-5 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
                               Módulos Extra (Suscripción)
@@ -1095,28 +502,28 @@ function SuperAdminDashboard() {
                                   <span className="text-sm font-semibold text-gray-700">Gestor de Pedidos</span>
                                   <div className="relative inline-flex items-center">
                                       <input type="checkbox" checked={editData.features?.orders || false} onChange={e => setEditData({...editData, features: {...(editData.features || {}), orders: e.target.checked}})} className="sr-only peer" />
-                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:trangray-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
                                   </div>
                               </label>
                               <label className="flex items-center justify-between cursor-pointer">
                                   <span className="text-sm font-semibold text-gray-700">Bandeja Multi-Agente (Live Chat)</span>
                                   <div className="relative inline-flex items-center">
                                       <input type="checkbox" checked={editData.features?.inbox || false} onChange={e => setEditData({...editData, features: {...(editData.features || {}), inbox: e.target.checked}})} className="sr-only peer" />
-                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:trangray-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
                                   </div>
                               </label>
                               <label className="flex items-center justify-between cursor-pointer">
                                   <span className="text-sm font-semibold text-gray-700">CRM Automático</span>
                                   <div className="relative inline-flex items-center">
                                       <input type="checkbox" checked={editData.features?.crm || false} onChange={e => setEditData({...editData, features: {...(editData.features || {}), crm: e.target.checked}})} className="sr-only peer" />
-                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:trangray-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
                                   </div>
                               </label>
                               <label className="flex items-center justify-between cursor-pointer">
                                   <span className="text-sm font-semibold text-gray-700">Campañas Masivas (Broadcasts)</span>
                                   <div className="relative inline-flex items-center">
                                       <input type="checkbox" checked={editData.features?.campaigns || false} onChange={e => setEditData({...editData, features: {...(editData.features || {}), campaigns: e.target.checked}})} className="sr-only peer" />
-                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
+                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:trangray-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-black"></div>
                                   </div>
                               </label>
                           </div>
@@ -1132,7 +539,7 @@ function SuperAdminDashboard() {
                         </label>
                         <label htmlFor="killswitch" className="relative inline-flex items-center cursor-pointer shrink-0">
                             <input type="checkbox" id="killswitch" checked={!editData.is_active} onChange={e => setEditData({...editData, is_active: !e.target.checked})} className="sr-only peer" />
-                            <div className="w-11 h-6 bg-red-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                            <div className="w-11 h-6 bg-red-200 peer-focus:outline-none rounded-full peer peer-checked:after:trangray-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
                         </label>
                     </div>
 
@@ -1209,7 +616,7 @@ function ClientDashboard() {
     const [totalOrders, setTotalOrders] = useState(0);
     const [orderFilter, setOrderFilter] = useState('pendiente');
     
-    const [activeTab, setActiveTab] = useState('dashboard');
+    const [activeTab, setActiveTab] = useState('productos');
     const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
     
     // Observers refs
@@ -1265,9 +672,9 @@ function ClientDashboard() {
     if (activeTab === 'inbox') {
       const fetchChats = async () => {
         try {
-          const res = await fetch(`${API_URL}/tenant/${tenantId}/chats?limit=${chatListLimit}`);
+          const res = await fetch(`http://localhost:3000/api/tenant/${tenantId}/chats?limit=${chatListLimit}`);
           const data = await res.json();
-          setChatList(Array.isArray(data) ? data : []);
+          setChatList(data);
         } catch(e) {}
       };
       fetchChats();
@@ -1282,9 +689,9 @@ function ClientDashboard() {
     if (activeTab === 'inbox' && activeChat) {
       const fetchMessages = async () => {
         try {
-          const res = await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}?limit=${messageLimit}`);
+          const res = await fetch(`http://localhost:3000/api/tenant/${tenantId}/chats/${activeChat}?limit=${messageLimit}`);
           const data = await res.json();
-          setChatMessages(Array.isArray(data) ? data : []);
+          setChatMessages(data);
         } catch(e) {}
       };
       fetchMessages();
@@ -1296,7 +703,7 @@ function ClientDashboard() {
   useEffect(() => {
       if (activeTab === 'inbox' && activeChat) {
           setShowChatOrderDetails(false); // Reset modal
-          fetch(`${API_URL}/tenant/${tenantId}/orders?phone=${encodeURIComponent(activeChat)}&limit=1`)
+          fetch(`http://localhost:3000/api/tenant/${tenantId}/orders?phone=${encodeURIComponent(activeChat)}&limit=1`)
               .then(res => res.json())
               .then(resData => {
                   const dataArray = Array.isArray(resData) ? resData : (resData.data || []);
@@ -1318,7 +725,7 @@ function ClientDashboard() {
     setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: text, created_at: new Date().toISOString() }]);
 
     try {
-      await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/send`, {
+      await fetch(`http://localhost:3000/api/tenant/${tenantId}/chats/${activeChat}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: text })
@@ -1447,7 +854,7 @@ function ClientDashboard() {
 
   useEffect(() => {
     if (activeTab === 'dashboard') {
-      fetch(`${API_URL}/tenant/${tenantId}/stats`)
+      fetch(`http://localhost:3000/api/tenant/${tenantId}/stats`)
         .then(res => res.json())
         .then(data => setDashboardStats(data))
         .catch(console.error);
@@ -1457,7 +864,7 @@ function ClientDashboard() {
   const fetchOrders = async (showSpinner = true) => {
     if (showSpinner) setLoadingOrders(true);
     try {
-      const res = await fetch(`${API_URL}/tenant/${tenantId}/orders?page=${orderPage}&limit=25&status=${orderFilter}`);
+      const res = await fetch(`http://localhost:3000/api/tenant/${tenantId}/orders?page=${orderPage}&limit=25&status=${orderFilter}`);
       const resData = await res.json();
       if (Array.isArray(resData)) {
         setOrders(resData);
@@ -1483,7 +890,7 @@ function ClientDashboard() {
     ));
     
     try {
-      await fetch(`${API_URL}/orders/${orderId}/status`, {
+      await fetch(`http://localhost:3000/api/orders/${orderId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
@@ -1562,55 +969,55 @@ function ClientDashboard() {
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden relative">
       {/* Sidebar Izquierdo (Modo Claro/Elegante) */}
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
-      <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
+      <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:trangray-x-0 ${showMobileMenu ? "trangray-x-0" : "-trangray-x-full"}`}>
         <div className="p-6 border-b border-gray-100">
           <h1 className="text-xl font-bold tracking-tight text-gray-900">SaaS Bot</h1>
           <p className="text-gray-500 text-xs mt-1 font-semibold tracking-wider uppercase">Workspace</p>
         </div>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
-          <div onClick={() => { setActiveTab('dashboard'); setShowMobileMenu(false); }} className={`${activeTab === 'dashboard' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
+          <div onClick={() => setActiveTab('dashboard')} className={`${activeTab === 'dashboard' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
             <span className="font-semibold text-sm">Dashboard</span>
           </div>
           
           {tenantInfo?.features?.inbox && (
-            <div onClick={() => { setActiveTab('inbox'); setShowMobileMenu(false); }} className={`${activeTab === 'inbox' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
+            <div onClick={() => setActiveTab('inbox')} className={`${activeTab === 'inbox' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
               <span className="font-semibold text-sm">Bandeja de Entrada</span>
             </div>
           )}
 
           {tenantInfo?.features?.orders !== false && (
-            <div onClick={() => { setActiveTab('pedidos'); setShowMobileMenu(false); }} className={`${activeTab === 'pedidos' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
+            <div onClick={() => setActiveTab('pedidos')} className={`${activeTab === 'pedidos' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
               <span className="font-semibold text-sm">Pedidos</span>
             </div>
           )}
 
-          <div onClick={() => { setActiveTab('productos'); setShowMobileMenu(false); }} className={`${activeTab === 'productos' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
+          <div onClick={() => setActiveTab('productos')} className={`${activeTab === 'productos' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
             <span className="font-semibold text-sm">Productos</span>
           </div>
 
           {tenantInfo?.features?.campaigns && (
-            <div onClick={() => { setActiveTab('campaigns'); setShowMobileMenu(false); }} className={`${activeTab === 'campaigns' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
+            <div onClick={() => setActiveTab('campaigns')} className={`${activeTab === 'campaigns' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
               <span className="font-semibold text-sm">Campañas Masivas</span>
             </div>
           )}
 
-          <div onClick={() => { setActiveTab('chatbots'); setShowMobileMenu(false); }} className={`${activeTab === 'chatbots' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
+          <div onClick={() => setActiveTab('chatbots')} className={`${activeTab === 'chatbots' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
             <span className="font-semibold text-sm">Chatbots</span>
           </div>
 
-          <div onClick={() => { setActiveTab('configuracion'); setShowMobileMenu(false); }} className={`${activeTab === 'configuracion' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
+          <div onClick={() => setActiveTab('configuracion')} className={`${activeTab === 'configuracion' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
             <span className="font-semibold text-sm">Configuración</span>
           </div>
             </div>
           <div className="p-4 border-t border-gray-100">
-          {localStorage.getItem('role') === 'superadmin' ? (
+          {localStorage.getItem('role') === 'admin' ? (
             <button onClick={() => navigate('/admin')} className="w-full text-left text-gray-900 hover:text-blue-800 hover:bg-gray-100 p-2.5 rounded-lg font-semibold flex items-center gap-3 transition text-sm">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
                 Volver a Súper Admin
@@ -1776,7 +1183,7 @@ function ClientDashboard() {
                                   
                                   try {
                                       const tId = tenantInfo.id;
-                                      const res = await fetch(`${API_URL}/tenant/${tId}/campaigns/send`, {
+                                      const res = await fetch(`http://localhost:3000/api/tenant/${tId}/campaigns/send`, {
                                           method: 'POST',
                                           headers: { 'Content-Type': 'application/json' },
                                           body: JSON.stringify({ template_name: templateName })
@@ -2169,7 +1576,7 @@ function ClientDashboard() {
                                                         const newStatus = e.target.value;
                                                         setChatLatestOrder({ ...chatLatestOrder, status: newStatus });
                                                         try {
-                                                            await fetch(`${API_URL}/orders/${chatLatestOrder.id}/status`, {
+                                                            await fetch(`http://localhost:3000/api/orders/${chatLatestOrder.id}/status`, {
                                                                 method: 'PUT',
                                                                 headers: { 'Content-Type': 'application/json' },
                                                                 body: JSON.stringify({ status: newStatus })
@@ -2566,7 +1973,7 @@ function ClientDashboard() {
                     <>
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5">
                             {paginatedProducts.map(p => (
-                                <div key={p.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative group flex flex-col h-full hover:-translate-y-1">
+                                <div key={p.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative group flex flex-col h-full hover:-trangray-y-1">
                                     <div className="absolute top-2 right-2 flex gap-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                         <button onClick={() => handleEditProduct(p)} className="bg-white/90 backdrop-blur-sm text-gray-700 border border-gray-200/50 w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-sm hover:bg-white hover:text-gray-900 transition-colors" title="Editar Producto">
                                             <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
@@ -2633,7 +2040,7 @@ function ClientDashboard() {
 
             {showModal && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100 max-h-[95vh] overflow-y-auto scrollbar-hide" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100" onClick={(e) => e.stopPropagation()}>
                 <h2 className="text-xl font-bold mb-6 text-gray-900">{editProductId ? 'Editar Producto' : 'Nuevo Producto'}</h2>
                 <form onSubmit={handleSubmit}>
                     

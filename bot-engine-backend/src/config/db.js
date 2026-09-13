@@ -10,4 +10,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false } // Requerido para conectarse a AWS de forma externa
 });
 
+pool.on('error', (err) => {
+  console.error('Error inesperado en el cliente idle de PostgreSQL:', err);
+});
+
 module.exports = pool;

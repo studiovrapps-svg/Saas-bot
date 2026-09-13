@@ -5,3 +5,11 @@
 body {
   background-color: #f3f4f6; /* Un gris muy claro, estilo SaaS profesional */
 }
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

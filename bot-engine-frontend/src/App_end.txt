@@ -1,0 +1,86 @@
+      {showModal && (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100" onClick={(e) => e.stopPropagation()}>
+                <h2 className="text-xl font-bold mb-6 text-gray-900">{editProductId ? 'Editar Producto' : 'Nuevo Producto'}</h2>
+                <form onSubmit={handleProductSubmit}>
+                    
+                    <div className="mb-4">
+                        <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Imagen del Producto</label>
+                        <input type="file" ref={fileInputRef} accept="image/*" className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-100 text-gray-700 hover:file:bg-gray-200" />
+                        {formData.image_url && <img src={formData.image_url} alt="preview" className="mt-2 h-20 w-20 object-cover rounded-lg border" />}
+                    </div>
+
+                    <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Nombre del Producto</label>
+                    <input type="text" required maxLength="24" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full border-b border-gray-200 p-2 mb-5 outline-none focus:border-black bg-transparent text-sm" placeholder="Ej: Pizza Familiar" />
+                    
+                    <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Precio de Venta</label>
+                    <div className="relative mb-5">
+                        <span className="absolute left-2 top-2 font-bold text-gray-500 text-sm">Q</span>
+                        <input type="number" step="0.01" required value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} className="w-full border-b border-gray-200 p-2 pl-6 outline-none focus:border-black bg-transparent text-sm font-medium" placeholder="99.00" />
+                    </div>
+
+                    <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Descripción para WhatsApp</label>
+                    <textarea required maxLength="100" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full border border-gray-200 p-3 mb-6 rounded-lg outline-none focus:border-black bg-gray-50 resize-none text-sm" placeholder="Incluye ingredientes y detalles..." rows="3"></textarea>
+
+                    <div className="flex gap-3">
+                        <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-3 bg-gray-100 rounded-lg font-semibold text-gray-700 hover:bg-gray-200 transition text-sm">Cancelar</button>
+                        <button type="submit" disabled={loading} className="flex-1 py-3 bg-black text-white rounded-lg font-semibold shadow-md hover:bg-gray-800 transition flex items-center justify-center gap-2 text-sm">
+                            {loading ? 'Guardando...' : (editProductId ? 'Guardar Cambios' : '🚀 Publicar')}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* Confirmación Eliminar */}
+      {deleteConfirm.isOpen && (
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setDeleteConfirm({ isOpen: false, type: null, index: null })}>
+            <div className="bg-white p-6 rounded-3xl shadow-2xl w-full max-w-sm border border-gray-100 transform transition-all text-center" onClick={(e) => e.stopPropagation()}>
+                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-sm">
+                    <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                </div>
+                <h3 className="text-xl font-extrabold text-gray-900 mb-2">¿Eliminar {deleteConfirm.type === 'menu' ? 'opción' : (deleteConfirm.type === 'faq' ? 'pregunta' : 'producto')}?</h3>
+                <p className="text-gray-500 text-sm mb-6 px-2">Esta acción no se puede deshacer y se eliminará {deleteConfirm.type === 'producto' ? 'de tu catálogo de WhatsApp inmediatamente.' : 'de la configuración de tu bot de WhatsApp.'}</p>
+                <div className="flex gap-3 w-full">
+                    <button onClick={() => setDeleteConfirm({ isOpen: false, type: null, index: null })} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-3 rounded-xl transition">Cancelar</button>
+                    <button onClick={async () => {
+                        if (deleteConfirm.type === 'menu') {
+                            let nm = [...tier1Menu]; nm.splice(deleteConfirm.index, 1); setTier1Menu(nm);
+                        } else if (deleteConfirm.type === 'faq') {
+                            setFaqs(faqs.filter((_, i) => i !== deleteConfirm.index));
+                        } else if (deleteConfirm.type === 'producto') {
+                            try {
+                                await fetch(`${API_URL}/productos/${deleteConfirm.index}`, { method: 'DELETE' });
+                                fetchData();
+                            } catch(err) { console.error(err); }
+                        }
+                        setDeleteConfirm({ isOpen: false, type: null, index: null });
+                    }} className="flex-1 bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/30 text-white font-bold py-3 rounded-xl transition">Sí, eliminar</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<Login />} />
+        <Route path="/admin" element={<SuperAdminDashboard />} />
+        <Route path="/dashboard/:tenantId" element={<ClientDashboard />} />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
