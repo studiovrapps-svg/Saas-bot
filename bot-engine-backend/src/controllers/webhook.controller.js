@@ -154,14 +154,17 @@ const processWebhook = async (req, res) => {
                             header: { type: `text`, text: `Menú Principal` },
                             body: { text: tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}. ¿Cómo podemos ayudarte hoy?` },
                             action: {
-                                button: `Ver opciones 👇`,
+                                button: `Ver opciones 📋`,
                                 sections: [{ title: `Opciones disponibles`, rows: rows.slice(0,10) }]
                             }
                         }
                     };
-                    await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+                    const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
                         method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                     });
+                    const metaResData = await metaRes.json();
+                    console.log("META RESPONSE:", JSON.stringify(metaResData, null, 2));
+                    await logMessage(tenant.id, from, 'outbound', 'interactive', 'Menú Principal enviado');
                 };
 
                 const sendInteractiveButtons = async (text, buttons) => {
