@@ -1344,7 +1344,7 @@ function ClientDashboard() {
     // Inicializar Facebook SDK para Embedded Signup
     window.fbAsyncInit = function() {
         window.FB.init({
-            appId      : 'AQUI_TU_APP_ID_DE_META', // REEMPLAZAR CON TU APP ID
+            appId      : '1567518045121608', // REEMPLAZAR CON TU APP ID
             cookie     : true,
             xfbml      : true,
             version    : 'v19.0'
@@ -1531,8 +1531,8 @@ function ClientDashboard() {
 
         // Simplemente mostraremos la alerta siempre si sabemos que el ID no se ha cambiado
         // Check if the script was initialized with the placeholder
-        if (document.body.innerHTML.includes('AQUI_TU_APP_ID_DE_META')) {
-            alert("🛑 ¡Alto ahí! Aún no has puesto tu APP_ID de Meta en el código. Abre App.jsx y reemplaza 'AQUI_TU_APP_ID_DE_META' con tu ID real de Meta for Developers.");
+        if (document.body.innerHTML.includes('1567518045121608')) {
+            alert("🛑 ¡Alto ahí! Aún no has puesto tu APP_ID de Meta en el código. Abre App.jsx y reemplaza '1567518045121608' con tu ID real de Meta for Developers.");
             return;
         }
 
@@ -1540,13 +1540,13 @@ function ClientDashboard() {
         window.FB.login((response) => {
             console.log("Respuesta de Meta:", response);
             if (response.authResponse) {
-                const accessToken = response.authResponse.accessToken;
+                const accessToken = response.authResponse.code || response.authResponse.accessToken;
                 linkWhatsAppAccount(accessToken);
             } else {
                 alert('Cancelaste la ventana de Meta o hubo un error de conexión.');
             }
         }, {
-            config_id: 'AQUI_TU_CONFIG_ID', // Requerido para Embedded Signup
+            config_id: '2203459136878980', // Requerido para Embedded Signup
             response_type: 'code',
             override_default_response_type: true,
             extras: { setup: {  } }
