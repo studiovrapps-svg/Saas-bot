@@ -2156,6 +2156,22 @@ function ClientDashboard() {
                                         <p className="text-xs text-green-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span> En línea (WhatsApp)</p>
                                     </div>
                                 </div>
+                                
+                                <button 
+                                    onClick={async () => {
+                                        const newStatus = chatStatus === 'bot' ? 'humano' : 'bot';
+                                        setChatStatus(newStatus);
+                                        await fetch(\/tenant/\/chats/\/toggle, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ status: newStatus })
+                                        });
+                                    }}
+                                    className={`ml-4 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm transition-colors ${chatStatus === 'bot' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300 animate-pulse'}`}
+                                    title="Click para alternar entre Bot y Humano"
+                                >
+                                    {chatStatus === 'bot' ? '🤖 Bot Activo' : '👤 Humano (Bot Pausado)'}
+                                </button>
 
                                 {/* Order Context Badge */}
                                 {chatLatestOrder && (
