@@ -1076,10 +1076,10 @@ function SuperAdminDashboard() {
                             </div>
                         ) : (
                             <div className="animate-fade-in">
-                                <label className="block text-xs font-bold mb-1 text-gray-500 uppercase tracking-wider">Phone ID</label>
+                                <label className="block text-xs font-bold mb-1 text-gray-500 uppercase tracking-wider">ID del Teléfono (Phone ID)</label>
                                 <input type="text" autoComplete="off" data-lpignore="true" data-form-type="other" value={editData.whatsapp_phone_id || ""} onChange={e => setEditData({...editData, whatsapp_phone_id: e.target.value})} className="w-full font-mono border border-gray-200 p-2.5 mb-4 rounded-xl bg-gray-50 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-sm" placeholder="Ej: 10423456789" />
                                 
-                                <label className="block text-xs font-bold mb-1 text-gray-500 uppercase tracking-wider">Access Token Permanente</label>
+                                <label className="block text-xs font-bold mb-1 text-gray-500 uppercase tracking-wider">Token de Acceso Permanente</label>
                                 <input type="password" autoComplete="new-password" data-lpignore="true" data-form-type="other" value={editData.whatsapp_token || ""} onChange={e => setEditData({...editData, whatsapp_token: e.target.value})} className="w-full font-mono border border-gray-200 p-2.5 rounded-xl bg-gray-50 text-sm outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-sm" placeholder="EAAD... " />
                             </div>
                         )}
