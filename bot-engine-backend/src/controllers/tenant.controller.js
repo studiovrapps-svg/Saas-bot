@@ -291,7 +291,17 @@ const metaConnect = async (req, res) => {
         res.json({ success: true, message: 'Conectado a Meta' });
     } catch (error) {
         res.status(500).json({ error: 'Error interno' });
+const { uploadImage } = require('../services/aws.service');
+
+const uploadMenuImage = async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'Falta imagen' });
+        const url = await uploadImage(req.file, `menu_images/tenant_${req.params.id}`);
+        res.json({ url });
+    } catch (e) {
+        console.error("Error subiendo imagen de menu", e);
+        res.status(500).json({ error: 'Error del servidor' });
     }
 };
 
-module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs };
+module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs, uploadMenuImage };

@@ -18,10 +18,21 @@ router.post('/templates', requireSuperAdmin, tenantController.createTemplate);
 router.put('/templates/:id', requireSuperAdmin, tenantController.updateTemplate);
 router.delete('/templates/:id', requireSuperAdmin, tenantController.deleteTemplate);
 
+const multer = require('multer');
+const upload = multer({ 
+    storage: multer.memoryStorage(), 
+    limits: { fileSize: 2 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) cb(null, true);
+        else cb(new Error('Solo imágenes'), false);
+    }
+});
+
 // Tenant
 router.get('/tenant/:id', tenantController.getTenantConfig);
 router.get('/tenant/:id/stats', tenantController.getStats);
 router.put('/tenant/:id/config', tenantController.updateTenantConfig);
+router.post('/tenant/:id/upload', upload.single('image'), tenantController.uploadMenuImage);
 router.post('/tenant/:id/meta-connect', tenantController.metaConnect);
 
 const orderController = require('../controllers/order.controller');
