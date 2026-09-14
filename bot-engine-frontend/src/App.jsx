@@ -1525,9 +1525,18 @@ function ClientDashboard() {
 
   const handleMetaLogin = () => {
         if (!window.FB) {
-            alert("⚠️ El SDK de Facebook no ha cargado. Revisa tu consola de internet.");
+            alert("🛑 El SDK de Facebook no ha cargado. Revisa tu consola de internet.");
             return;
         }
+
+        try {
+            window.FB.init({
+                appId      : '1567518045121608',
+                cookie     : true,
+                xfbml      : true,
+                version    : 'v19.0'
+            });
+        } catch(e) { console.log(e); }
 
         console.log("Iniciando popup de Meta...");
         window.FB.login((response) => {
