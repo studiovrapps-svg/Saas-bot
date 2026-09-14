@@ -1551,7 +1551,7 @@ function ClientDashboard() {
             config_id: '2203459136878980', // Requerido para Embedded Signup
             response_type: 'code',
             override_default_response_type: true,
-            scope: 'business_management,whatsapp_business_management,whatsapp_business_messaging',
+            scope: 'whatsapp_business_management,whatsapp_business_messaging',
             extras: { setup: {  } }
         });
     };
