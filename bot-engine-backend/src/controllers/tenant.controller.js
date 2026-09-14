@@ -291,6 +291,9 @@ const metaConnect = async (req, res) => {
         res.json({ success: true, message: 'Conectado a Meta' });
     } catch (error) {
         res.status(500).json({ error: 'Error interno' });
+    }
+};
+
 const { uploadImage } = require('../services/aws.service');
 
 const uploadMenuImage = async (req, res) => {

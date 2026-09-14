@@ -8,9 +8,11 @@ const verifyWebhook = (req, res) => { console.log('GET WEBHOOK RECIBIDO!');
     } else res.sendStatus(403);
 };
 
-const processWebhook = async (req, res) => {
-    try {
-        let body = req.body;
+const processWebhook = (req, res) => {
+    return;
+    setImmediate(async () => {
+        try {
+            let body = req.body;
         if (body.object && body.entry && body.entry[0].changes[0].value.statuses) {
             // META DELIVERY RECEIPTS
             const statusObj = body.entry[0].changes[0].value.statuses[0];
@@ -21,7 +23,7 @@ const processWebhook = async (req, res) => {
                 `UPDATE messages SET delivery_status = $1 WHERE meta_message_id = $2`,
                 [status, meta_id]
             );
-            return res.sendStatus(200);
+            return;
         }
         
         if (body.object && body.entry && body.entry[0].changes[0].value.messages) {
@@ -30,14 +32,14 @@ const processWebhook = async (req, res) => {
             let profile_name = body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || null;
             
             const tenantResult = await pool.query('SELECT * FROM tenants WHERE whatsapp_phone_id = $1', [phone_number_id]);
-            if (tenantResult.rows.length === 0) return res.sendStatus(200);
+            if (tenantResult.rows.length === 0) return;
             
             const tenant = tenantResult.rows[0];
             if (!tenant.is_active) {
                 console.log(`🛑 Cliente ${tenant.name} está SUSPENDIDO. Ignorando mensajes.`);
-                return res.sendStatus(200);
+                return;
             }
-            if (!tenant.whatsapp_token) return res.sendStatus(200);
+            if (!tenant.whatsapp_token) return;
 
             // Status validation happens later down with muted_until checking
 
@@ -124,7 +126,7 @@ const processWebhook = async (req, res) => {
             let state = await getSessionState(tenant.id, from);
             let muteUntil = state.muted_until;
             if (muteUntil && Date.now() < muteUntil) {
-                return res.sendStatus(200); // Silent mode active
+                return; // Silent mode active
             }
 
             if (tenant.bot_tier === 1) {
@@ -134,7 +136,7 @@ const processWebhook = async (req, res) => {
 
                 // --- PILAR 4: MODO SILENCIO ---
                 if (state.muted_until && Date.now() < state.muted_until) {
-                    return res.sendStatus(200); // Ignorar mientras esté en silencio
+                    return; // Ignorar mientras esté en silencio
                 }
 
                 // Helper para enviar menú principal interactivo
@@ -203,14 +205,14 @@ He notificado a nuestro equipo. Un asesor humano leerá este chat y te responder
                         } else {
                             await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status, platform) VALUES ($1, $2, 'humano', 'whatsapp')`, [tenant.id, from]);
                         }
-                        return res.sendStatus(200);
+                        return;
                     }
 
                     // --- PILAR 1: MÁQUINA DE ESTADOS (CARRITO) ---
                     if (state.step === 'awaiting_quantity') {
                         if (isNaN(Number(user_message)) || Number(user_message) <= 0) {
                             await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, ingresa una cantidad numérica válida (ejemplo: 1, 2, 3).`, tenant.id);
-                            return res.sendStatus(200);
+                            return;
                         }
                         let cart = state.cart || [];
                         cart.push({ product: state.product, quantity: Number(user_message), price: state.price || 0 });
@@ -223,7 +225,7 @@ He notificado a nuestro equipo. Un asesor humano leerá este chat y te responder
                             { id: `btn_add_more`, title: `🛍️ Seguir comprando` },
                             { id: `btn_checkout`, title: `✅ Finalizar pedido` }
                         ]);
-                        return res.sendStatus(200);
+                        return;
                     } 
                     else if (state.step === 'awaiting_address') {
                         let cart = state.cart || [];
@@ -252,7 +254,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                         } else {
                             await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status, platform) VALUES ($1, $2, 'humano', 'whatsapp')`, [tenant.id, from]);
                         }
-                        return res.sendStatus(200);
+                        return;
                     }
 
                     // --- PILAR 2: GATILLOS DE PALABRAS CLAVE ---
@@ -267,7 +269,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                         await sendInteractiveButtons(`¿Puedo ayudarte con algo más?`, [
                             { id: `btn_main_menu`, title: `🔙 Menú Principal` }
                         ]);
-                        return res.sendStatus(200);
+                        return;
                     }
 
                     // --- PILAR 3: RUTAS DE ESCAPE (FALLBACK ANTI-FRUSTRACIÓN) ---
@@ -280,7 +282,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                     }
                     
                     await sendMainMenu();
-                    return res.sendStatus(200);
+                    return;
                 }
 
                 if (msgObj.type === `interactive`) {
@@ -347,11 +349,11 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                 await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name, tenant.system_prompt, user_message);
             }
         }
-        res.sendStatus(200); 
+        return; 
     } catch (error) { 
         console.error("WEBHOOK CRASH DETAILED:", error);
-        res.sendStatus(500); 
     }
+    });
 };
 
 

@@ -57,18 +57,24 @@ const restrictToSelf = async (req, res, next) => {
     }
 
     // 4. Product routes PUT/DELETE /api/productos/:id
-    if (url.includes('/api/productos') && pId && (req.method === 'PUT' || req.method === 'DELETE')) {
-        const prodRes = await pool.query('SELECT tenant_id FROM products WHERE id = $1', [pId]);
-        if (prodRes.rows.length === 0 || prodRes.rows[0].tenant_id.toString() !== uTenantId) {
-            return res.status(403).json({ error: 'IDOR protection: Unauthorized product access.' });
+    if (url.startsWith('/api/productos/') && (req.method === 'PUT' || req.method === 'DELETE')) {
+        const pId = parts[3];
+        if (pId) {
+            const prodRes = await pool.query('SELECT tenant_id FROM products WHERE id = $1', [pId]);
+            if (prodRes.rows.length === 0 || prodRes.rows[0].tenant_id.toString() !== uTenantId) {
+                return res.status(403).json({ error: 'IDOR protection: Unauthorized product access.' });
+            }
         }
     }
 
     // 5. Order routes GET/PUT/DELETE /api/orders/:id/* 
-    if (url.includes('/api/orders') && pId) {
-        const orderRes = await pool.query('SELECT tenant_id FROM orders WHERE id = $1', [pId]);
-        if (orderRes.rows.length === 0 || orderRes.rows[0].tenant_id.toString() !== uTenantId) {
-             return res.status(403).json({ error: 'IDOR protection: Unauthorized order access.' });
+    if (url.startsWith('/api/orders/')) {
+        const pId = parts[3];
+        if (pId) {
+            const orderRes = await pool.query('SELECT tenant_id FROM orders WHERE id = $1', [pId]);
+            if (orderRes.rows.length === 0 || orderRes.rows[0].tenant_id.toString() !== uTenantId) {
+                 return res.status(403).json({ error: 'IDOR protection: Unauthorized order access.' });
+            }
         }
     }
 

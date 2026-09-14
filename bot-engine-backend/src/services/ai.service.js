@@ -68,11 +68,22 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
                 type: `function`,
                 function: {
                     name: `create_order`,
-                    description: `Crea un pedido oficial en el sistema.`,
+                    description: `Crea un pedido oficial en el sistema. DEBES buscar en el catálogo el nombre exacto y el PRECIO (price) de cada producto.`,
                     parameters: {
                         type: `object`,
                         properties: {
-                            items: { type: `array`, items: { type: `object`, properties: { product: { type: `string` }, quantity: { type: `integer` } } } },
+                            items: { 
+                                type: `array`, 
+                                items: { 
+                                    type: `object`, 
+                                    properties: { 
+                                        product: { type: `string` }, 
+                                        quantity: { type: `integer` },
+                                        price: { type: `number`, description: `El precio unitario del producto, extraído del catálogo` }
+                                    },
+                                    required: [`product`, `quantity`, `price`]
+                                } 
+                            },
                             delivery_address: { type: `string` }
                         },
                         required: [`items`, `delivery_address`]
@@ -91,7 +102,7 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
 
         const completion = await groq.chat.completions.create({
             messages: messages,
-            model: "groq/compound-mini", // Cambiado por optimización de costos (2026)
+            model: "openai/gpt-oss-20b",
             temperature: 0.2,
             max_tokens: 250,
             tools: tools,
@@ -111,6 +122,7 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
             }
         } catch(e) { console.error("Error logging tokens", e); }
 
+        console.log('GROQ RESPONSE RAW:', JSON.stringify(completion, null, 2));
         const responseMessage = completion.choices[0].message;
         let finalResponseText = responseMessage.content || "";
 

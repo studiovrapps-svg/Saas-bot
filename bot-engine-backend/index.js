@@ -9,6 +9,7 @@ const inboxRoutes = require('./src/routes/inbox.routes');
 const orderRoutes = require('./src/routes/order.routes');
 const webhookRoutes = require('./src/routes/webhook.routes');
 const campaignRoutes = require('./src/routes/campaign.routes');
+const billingRoutes = require('./src/routes/billing.routes');
 
 const { requireAuth, restrictToSelf } = require('./src/middlewares/auth.middleware');
 
@@ -33,6 +34,9 @@ app.use('/api/productos', requireAuth, restrictToSelf, productRoutes);
 app.use('/api/tenant', requireAuth, restrictToSelf, inboxRoutes);
 app.use('/api/orders', requireAuth, restrictToSelf, orderRoutes);
 app.use('/api/tenant', requireAuth, restrictToSelf, campaignRoutes);
+
+// Rutas de Facturación
+app.use('/api/billing', billingRoutes);
 
 // Webhooks Meta
 app.use('/webhook', webhookRoutes);

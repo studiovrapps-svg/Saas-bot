@@ -10,7 +10,8 @@ const getProducts = async (req, res) => {
 
 const createProduct = async (req, res) => {
     try {
-        const { tenant_id, name, description, price } = req.body;
+        const { name, description, price } = req.body;
+        const tenant_id = (req.user && req.user.role !== 'superadmin') ? req.user.tenant_id : req.body.tenant_id;
         const file = req.file;
         if (!tenant_id || !name || !file) return res.status(400).json({ error: `Faltan datos` });
 
@@ -36,21 +37,27 @@ const updateProduct = async (req, res) => {
         let validPrice = Number(price);
         if (isNaN(validPrice) || validPrice < 0) return res.status(400).json({ error: 'El importe (USD) debe ser un número válido.' });
 
+        const isSuperAdmin = req.user && req.user.role === 'superadmin';
+        const tenantCondition = isSuperAdmin ? '' : `AND tenant_id = ${req.user.tenant_id}`;
+
         if (file) {
-            const pResult = await pool.query('SELECT image_url FROM products WHERE id = $1', [id]);
+            const pResult = await pool.query(`SELECT image_url FROM products WHERE id = $1 ${tenantCondition}`, [id]);
             if (pResult.rows.length > 0) {
                 await deleteImage(pResult.rows[0].image_url);
+            } else if (!isSuperAdmin) {
+                return res.status(403).json({ error: 'Unauthorized' });
             }
             const imageUrl = await uploadImage(file, `catalogo/edits`);
             await pool.query(
-                'UPDATE products SET name = $1, description = $2, price = $3, image_url = $4 WHERE id = $5',
+                `UPDATE products SET name = $1, description = $2, price = $3, image_url = $4 WHERE id = $5 ${tenantCondition}`,
                 [name, description, price, imageUrl, id]
             );
         } else {
-            await pool.query(
-                'UPDATE products SET name = $1, description = $2, price = $3 WHERE id = $4',
+            const uResult = await pool.query(
+                `UPDATE products SET name = $1, description = $2, price = $3 WHERE id = $4 ${tenantCondition}`,
                 [name, description, price, id]
             );
+            if (uResult.rowCount === 0 && !isSuperAdmin) return res.status(403).json({ error: 'Unauthorized' });
         }
         res.json({ message: `Producto actualizado` });
     } catch (error) { res.status(500).json({ error: `Error interno` }); }
@@ -59,12 +66,17 @@ const updateProduct = async (req, res) => {
 const deleteProduct = async (req, res) => {
     try {
         const { id } = req.params;
-        const pResult = await pool.query('SELECT image_url FROM products WHERE id = $1', [id]);
+        const isSuperAdmin = req.user && req.user.role === 'superadmin';
+        const tenantCondition = isSuperAdmin ? '' : `AND tenant_id = ${req.user.tenant_id}`;
+
+        const pResult = await pool.query(`SELECT image_url FROM products WHERE id = $1 ${tenantCondition}`, [id]);
         if (pResult.rows.length > 0) {
             await deleteImage(pResult.rows[0].image_url);
+            await pool.query(`DELETE FROM products WHERE id = $1 ${tenantCondition}`, [id]);
+            res.json({ message: `Producto eliminado` });
+        } else {
+            return res.status(403).json({ error: 'Unauthorized or not found' });
         }
-        await pool.query('DELETE FROM products WHERE id = $1', [id]);
-        res.json({ message: `Producto eliminado` });
     } catch (error) { res.status(500).json({ error: `Error interno` }); }
 };
 
