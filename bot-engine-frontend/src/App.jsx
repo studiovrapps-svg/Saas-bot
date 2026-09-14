@@ -1201,6 +1201,7 @@ function ClientDashboard() {
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const imageDragRef = useRef(false);
   const [chatMessages, setChatMessages] = useState([]);
+  const [chatStatus, setChatStatus] = useState('bot');
   const [chatLatestOrder, setChatLatestOrder] = useState(null);
   const [showChatOrderDetails, setShowChatOrderDetails] = useState(false);
     const [messageLimit, setMessageLimit] = useState(50);
