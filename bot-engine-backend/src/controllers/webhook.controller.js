@@ -9,7 +9,7 @@ const verifyWebhook = (req, res) => { console.log('GET WEBHOOK RECIBIDO!');
 };
 
 const processWebhook = (req, res) => {
-    return;
+    res.sendStatus(200);
     setImmediate(async () => {
         try {
             let body = req.body;
