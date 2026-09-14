@@ -291,8 +291,6 @@ const metaConnect = async (req, res) => {
         const { accessToken } = req.body; 
         const tenant_id = req.params.id;
         
-        const fetch = require('node-fetch');
-        
         // Exchanging code
         const tokenRes = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?client_id=1567518045121608&client_secret=cbc0d6041a9c6302aac8c73f6b2c4352&code=${accessToken}`);
         const tokenData = await tokenRes.json();
@@ -317,7 +315,6 @@ const metaConnect = async (req, res) => {
              }
         }
         
-        const pool = require('../config/db');
         if (phone_id) {
             await pool.query('UPDATE tenants SET whatsapp_token = $1, whatsapp_phone_id = $2 WHERE id = $3', [finalToken, phone_id, tenant_id]);
             res.json({ success: true, message: 'Conectado a Meta con ?xito', phone_id });
