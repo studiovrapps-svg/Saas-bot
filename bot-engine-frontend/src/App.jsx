@@ -1529,13 +1529,6 @@ function ClientDashboard() {
             return;
         }
 
-        // Simplemente mostraremos la alerta siempre si sabemos que el ID no se ha cambiado
-        // Check if the script was initialized with the placeholder
-        if (document.body.innerHTML.includes('1567518045121608')) {
-            alert("🛑 ¡Alto ahí! Aún no has puesto tu APP_ID de Meta en el código. Abre App.jsx y reemplaza '1567518045121608' con tu ID real de Meta for Developers.");
-            return;
-        }
-
         console.log("Iniciando popup de Meta...");
         window.FB.login((response) => {
             console.log("Respuesta de Meta:", response);
