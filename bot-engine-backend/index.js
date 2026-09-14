@@ -13,6 +13,7 @@ const campaignRoutes = require('./src/routes/campaign.routes');
 const { requireAuth, restrictToSelf } = require('./src/middlewares/auth.middleware');
 
 const app = express();
+app.set('trust proxy', 1); // Necesario para que express-rate-limit funcione detrás de proxies (Netlify/Railway)
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true
