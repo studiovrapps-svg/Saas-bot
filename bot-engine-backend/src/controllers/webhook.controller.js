@@ -272,7 +272,13 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
 
                     // --- PILAR 3: RUTAS DE ESCAPE (FALLBACK ANTI-FRUSTRACIÓN) ---
                     await delSessionState(tenant.id, from); state = await getSessionState(tenant.id, from);
-                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `No te comprendí muy bien 😅. Para ayudarte rápido, por favor selecciona una de nuestras opciones:`, tenant.id);
+                    
+                    const isGreeting = ['hola', 'menu', 'menú', 'inicio', 'buenas', 'buenos', 'saludos', 'ayuda', 'ola'].some(g => text.includes(g));
+                    
+                    if (!isGreeting) {
+                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `No te comprendí muy bien 😅. Para ayudarte rápido, por favor selecciona una de nuestras opciones:`, tenant.id);
+                    }
+                    
                     await sendMainMenu();
                     return res.sendStatus(200);
                 }
@@ -342,7 +348,10 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
             }
         }
         res.sendStatus(200); 
-    } catch (error) { res.sendStatus(500); }
+    } catch (error) { 
+        console.error("WEBHOOK CRASH DETAILED:", error);
+        res.sendStatus(500); 
+    }
 };
 
 
