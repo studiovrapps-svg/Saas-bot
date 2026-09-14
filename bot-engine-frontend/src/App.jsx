@@ -2161,7 +2161,7 @@ function ClientDashboard() {
                                     onClick={async () => {
                                         const newStatus = chatStatus === 'bot' ? 'humano' : 'bot';
                                         setChatStatus(newStatus);
-                                        await fetch(\/tenant/\/chats/\/toggle, {
+                                        await fetch(`${API_URL}/api/tenant/${tenant.id}/chats/${activeChat}/toggle`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify({ status: newStatus })
