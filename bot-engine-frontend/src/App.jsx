@@ -1392,6 +1392,31 @@ function ClientDashboard() {
       setSavingPrompt(false);
   };
 
+    const handleImageUploadMenu = async (idx, file) => {
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('image', file);
+        
+        try {
+            const res = await fetch(`${API_URL}/tenant/${tenantId}/upload`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                body: formData
+            });
+            const data = await res.json();
+            if (res.ok && data.url) {
+                let nm = [...tier1Menu];
+                nm[idx].image_url = data.url;
+                setTier1Menu(nm);
+            } else {
+                alert("Error subiendo imagen: " + (data.error || ""));
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Error subiendo imagen");
+        }
+    };
+
   const handleAddMenu = () => {
       if(tier1Menu.length >= 9) return alert("Máximo 9 opciones extra (Meta limita a 10 total).");
       setTier1Menu([...tier1Menu, { title: "", response: "" }]);
