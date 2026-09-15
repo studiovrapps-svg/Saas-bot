@@ -84,9 +84,6 @@ const processWebhook = (req, res) => {
                       } catch(e) {
                           user_message = "[Error transcribiendo audio]";
                       }
-                  } else {
-                      user_message = "[Error descargando audio]";
-                  }
               } else {
                       user_message = "[Error descargando audio]";
                   }
@@ -345,7 +342,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                         await sendMainMenu();
                     }
                 }
-} else if (tenant.bot_tier >= 2) {
+            } else if (tenant.bot_tier >= 2) {
                 await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name, tenant.system_prompt, user_message);
             }
         }
