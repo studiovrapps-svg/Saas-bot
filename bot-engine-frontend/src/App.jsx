@@ -2180,15 +2180,12 @@ function ClientDashboard() {
                                             body: JSON.stringify({ status: newStatus })
                                         });
                                     }}
-                                    className={`ml-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-all border ${chatStatus === 'bot' ? 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 animate-pulse'}`}
+                                    className={`ml-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-all border ${chatStatus === 'bot' ? 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
                                     title="Click para alternar entre control automático y manual"
                                 >
                                     {chatStatus === 'bot' ? (
                                         <>
-                                            <span className="relative flex h-2 w-2">
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-                                            </span>
+                                            <span className="rounded-full h-2 w-2 bg-blue-500"></span>
                                             <span>MODO AUTOMÁTICO</span>
                                         </>
                                     ) : (
