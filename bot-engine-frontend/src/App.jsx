@@ -3024,6 +3024,85 @@ function ClientDashboard() {
               </div>
           </div>
       )}
+
+{showProductPicker && (
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setShowProductPicker(false)}>
+        <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Seleccionar Producto</h2>
+                <button onClick={() => setShowProductPicker(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            
+            <input 
+                type="text" 
+                placeholder="Buscar producto por nombre..." 
+                className="w-full border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-black transition mb-4 text-sm"
+                onChange={(e) => {
+                    const term = e.target.value.toLowerCase();
+                    const items = document.querySelectorAll('.product-picker-item');
+                    let visibleCount = 0;
+                    items.forEach(item => {
+                        const name = item.getAttribute('data-name').toLowerCase();
+                        if (name.includes(term)) {
+                            item.style.display = 'flex';
+                            visibleCount++;
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                    const emptyState = document.getElementById('product-picker-empty');
+                    if (emptyState) emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
+                }}
+            />
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2 pr-2">
+                {productos.length === 0 ? (
+                    <p className="text-center text-gray-500 py-8">No hay productos disponibles.</p>
+                ) : (
+                    <>
+                        <p id="product-picker-empty" className="text-center text-gray-500 py-8" style={{display: 'none'}}>No hay resultados.</p>
+                        {productos.map(p => (
+                            <button 
+                                key={p.id}
+                                className="product-picker-item flex items-center gap-4 p-3 hover:bg-gray-50 border border-transparent hover:border-gray-100 rounded-xl transition-all text-left group"
+                                data-name={p.name}
+                                onClick={async () => {
+                                    setShowProductPicker(false);
+                                    try {
+                                        await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/action`, {
+                                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'product', product_id: p.id })
+                                        });
+                                        setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: `[Imagen: ${p.image_url || ''}]\n*📦 ${p.name}*\n\n💰 Precio: Q${p.price}\n\n${p.description || ''}`.trim(), created_at: new Date().toISOString(), sender_type: 'humano', message_type: p.image_url ? 'image' : 'text' }]);
+                                    } catch(e) { console.error(e); }
+                                }}
+                            >
+                                {p.image_url ? (
+                                    <img src={p.image_url} alt={p.name} className="w-12 h-12 object-cover rounded-lg border border-gray-200 shrink-0 bg-gray-100" />
+                                ) : (
+                                    <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200">
+                                        <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-gray-900 truncate text-sm">{p.name}</p>
+                                    <p className="text-blue-600 font-semibold text-xs mt-0.5">Q{p.price}</p>
+                                </div>
+                                <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="bg-black text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full shadow-sm flex items-center gap-1">
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg> Enviar
+                                    </span>
+                                </div>
+                            </button>
+                        ))}
+                    </>
+                )}
+            </div>
+        </div>
+    </div>
+)}
+
     </div>
   );
 }
