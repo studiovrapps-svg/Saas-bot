@@ -45,7 +45,7 @@ ${faqTexto}
 ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
 
         const historyRes = await pool.query(
-            `SELECT direction, content FROM messages WHERE tenant_id = $1 AND customer_phone = $2 ORDER BY created_at ASC LIMIT 10`,
+            `SELECT * FROM (SELECT direction, content, created_at FROM messages WHERE tenant_id = $1 AND customer_phone = $2 ORDER BY created_at DESC LIMIT 10) sub ORDER BY created_at ASC`,
             [tenant_id, to]
         );
         
@@ -134,19 +134,31 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
                         } else if (!args.delivery_address || args.delivery_address.trim().length < 4) {
                             finalResponseText += `\n\n⚠️ Para registrar tu pedido, por favor bríndame tu dirección de entrega completa.`;
                         } else {
-                            let cartText = args.items.map(i => `${i.quantity}x ${i.product}`).join(', ');
-                            await pool.query(
-                                `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address, status) VALUES ($1, $2, $3, $4, 'pendiente')`,
-                                [tenant_id, to, JSON.stringify(args.items), args.delivery_address]
-                            );
-                            finalResponseText += `\n\n✅ ¡Pedido registrado con éxito! Resumen: ${cartText}. Dirección: ${args.delivery_address}.`;
+                            // Validate items against DB
+                            let validatedItems = [];
+                            for (let item of args.items) {
+                                const dbProd = prodResult.rows.find(p => p.name.toLowerCase() === item.product.toLowerCase());
+                                if (dbProd && item.quantity > 0) {
+                                    validatedItems.push({ product: dbProd.name, quantity: item.quantity, price: dbProd.price });
+                                }
+                            }
+                            if (validatedItems.length === 0) {
+                                finalResponseText += `\n\nLo siento, no pude validar los productos o cantidades en tu carrito. Por favor, intenta de nuevo.`;
+                            } else {
+                                let cartText = validatedItems.map(i => `${i.quantity}x ${i.product}`).join(', ');
+                                await pool.query(
+                                    `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address, status) VALUES ($1, $2, $3, $4, 'pendiente')`,
+                                    [tenant_id, to, JSON.stringify(validatedItems), args.delivery_address]
+                                );
+                                finalResponseText += `\n\n🛍️ ¡Pedido registrado con éxito! Resumen: ${cartText}. Dirección: ${args.delivery_address}.`;
+                            }
                         }
                     } catch(e) { console.error("Error parsing create_order args", e); }
                 } else if (toolCall.function.name === 'transfer_to_human') {
                     
-                    // Update state in DB instead of cache
+                    // Update state in DB and notify human
                     await pool.query(
-                        'INSERT INTO chat_sessions (tenant_id, user_phone, state_data) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, user_phone) DO UPDATE SET state_data = jsonb_set(COALESCE(chat_sessions.state_data, \'{}\'), \'{muted_until}\', $4::jsonb)',
+                        `INSERT INTO chat_sessions (tenant_id, user_phone, state_data, status) VALUES ($1, $2, $3, 'humano') ON CONFLICT (tenant_id, user_phone) DO UPDATE SET status = 'humano', last_interaction = NOW(), state_data = jsonb_set(COALESCE(chat_sessions.state_data, '{}'), '{muted_until}', $4::jsonb)`,
                         [tenant_id, to, JSON.stringify({ muted_until: Date.now() + (2 * 60 * 60 * 1000) }), (Date.now() + (2 * 60 * 60 * 1000)).toString()]
                     );
         

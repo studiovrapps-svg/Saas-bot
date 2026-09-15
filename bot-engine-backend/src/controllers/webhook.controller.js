@@ -62,14 +62,15 @@ const processWebhook = (req, res) => {
                   const { uploadImage } = require('../services/aws.service');
                   
                   const buffer = await downloadWhatsAppMedia(media_id, tenant.whatsapp_token);
-                  if (buffer) {
-                      const fakeFile = {
-                          originalname: `img_${Date.now()}.${ext}`,
-                          buffer: buffer,
-                          mimetype: mime_type
-                      };
-                      user_message = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
-                  } else {
+                    if (buffer) {
+                        const fakeFile = {
+                            originalname: `img_${Date.now()}.${ext}`,
+                            buffer: buffer,
+                            mimetype: mime_type
+                        };
+                        const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
+                        user_message = (msgObj.image.caption ? msgObj.image.caption + '\n' : '') + `[Imagen adjunta: ${s3Url}]`;
+                    } else {
                       user_message = "[Error descargando imagen]";
                   }
               } else if (msgObj.type === `audio`) {
@@ -86,15 +87,18 @@ const processWebhook = (req, res) => {
                       const os = require('os');
                       const tmpPath = path.join(os.tmpdir(), `audio_${crypto.randomUUID()}.ogg`);
                       fs.writeFileSync(tmpPath, buffer);
-                      try {
-                          user_message = await transcribeAudio(tmpPath, tenant.id);
-                      } catch(e) {
-                          user_message = "[Error transcribiendo audio]";
-                      }
-                      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); // Limpieza inmediata
+                        try {
+                            user_message = await transcribeAudio(tmpPath, tenant.id);
+                        } catch(e) {
+                            user_message = "[Error transcribiendo audio]";
+                        }
+                        // Delay file deletion to allow Groq SDK to close the file handle on Windows (prevents EBUSY crash)
+                        setTimeout(() => { if (fs.existsSync(tmpPath)) { try { fs.unlinkSync(tmpPath); } catch(e){} } }, 5000);
                   } else {
                       user_message = "[Error descargando audio]";
                   }
+              } else {
+                  user_message = `[Multimedia o documento adjunto: ${msgObj.type}]`;
               }
             
             // Log incoming message
