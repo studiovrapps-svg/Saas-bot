@@ -1,11 +1,11 @@
 const pool = require('../config/db');
 const { logSystemEvent } = require('./logger.service');
 
-async function logMessage(tenant_id, phone, direction, type, content, meta_message_id = null, delivery_status = 'sent', customer_name = null) {
+async function logMessage(tenant_id, phone, direction, type, content, meta_message_id = null, delivery_status = 'sent', customer_name = null, sender_type = 'bot') {
     try {
         await pool.query(
-            `INSERT INTO messages (tenant_id, customer_phone, direction, message_type, content, meta_message_id, delivery_status, customer_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [tenant_id, phone, direction, type, content, meta_message_id, delivery_status, customer_name]
+            `INSERT INTO messages (tenant_id, customer_phone, direction, message_type, content, meta_message_id, delivery_status, customer_name, sender_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [tenant_id, phone, direction, type, content, meta_message_id, delivery_status, customer_name, sender_type]
         );
     } catch (e) {
         console.error(`Error logging message:`, e);
@@ -44,7 +44,7 @@ async function sendWhatsAppMenu(phone_number_id, token, to, tenant_id, tenant_na
     }
 }
 
-async function sendWhatsAppText(phone_number_id, token, to, text, tenant_id = null) {
+async function sendWhatsAppText(phone_number_id, token, to, text, tenant_id = null, sender_type = 'bot') {
     try {
         const response = await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
             method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -53,7 +53,7 @@ async function sendWhatsAppText(phone_number_id, token, to, text, tenant_id = nu
         const data = await response.json();
         if (data.error) await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'META_API', message: 'Error enviando texto', details: data.error });
         const wamid = data?.messages?.[0]?.id || null;
-        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'text', text, wamid);
+        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'text', text, wamid, 'sent', null, sender_type);
         return data; // Useful for inbox controller
     } catch (error) { 
         console.error(`Error enviando texto WhatsApp:`, error); 
@@ -77,7 +77,7 @@ async function sendInteractiveButtons(phone_number_id, token, to, text, buttons,
         const data = await response.json();
         if (data.error) await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'META_API', message: 'Error enviando botones', details: data.error });
         const wamid = data?.messages?.[0]?.id || null;
-        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'interactive', text, wamid);
+        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'interactive', text, wamid, 'sent', null, 'bot');
     } catch (error) { 
         console.error(`Error enviando botones interactivos:`, error); 
         await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'SYSTEM', message: 'Excepción en sendInteractiveButtons', details: { err: error.message } });

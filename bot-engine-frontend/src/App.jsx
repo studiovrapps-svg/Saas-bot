@@ -1321,7 +1321,7 @@ function ClientDashboard() {
     setReplyText("");
     
     // Optistic update
-    setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: text, created_at: new Date().toISOString() }]);
+    setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: text, created_at: new Date().toISOString(), sender_type: 'humano' }]);
 
     try {
       await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/send`, {
@@ -2181,7 +2181,7 @@ function ClientDashboard() {
                                     className={`ml-4 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm transition-colors ${chatStatus === 'bot' ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-300 animate-pulse'}`}
                                     title="Click para alternar entre Bot y Humano"
                                 >
-                                    {chatStatus === 'bot' ? '🤖 Bot Activo' : '👤 Humano (Bot Pausado)'}
+                                    {chatStatus === 'bot' ? '🤖 Bot Activo (Tomar control)' : '👤 Ticket Cerrado (Devolver a Bot)'}
                                 </button>
 
                                 {/* Order Context Badge */}
@@ -2327,8 +2327,10 @@ function ClientDashboard() {
                                 <div ref={bottomAnchorRef} className="h-1 flex-shrink-0" />
                                 {[...chatMessages].reverse().map(msg => (
                                     <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[70%] rounded-xl shadow-sm relative ${msg.message_type === 'image' ? 'p-1' : 'px-4 py-2'} ${msg.direction === 'outbound' ? 'bg-[#dcf8c6] rounded-tr-none' : 'bg-white rounded-tl-none'}`}>
-                                            {msg.message_type === 'image' ? (
+                                        <div className={`max-w-[70%] rounded-xl shadow-sm relative ${msg.direction === 'outbound' && <div className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 opacity-60">{msg.sender_type === 'humano' ? <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>Tú (Humano)</> : <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zm8-6a1 1 0 100 2 1 1 0 000-2zm-1 4a1 1 0 00-1 1v4a1 1 0 102 0v-4a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>Bot</>}</div>}
+                                              {(msg.message_type === 'image' || msg.message_type === 'sticker') ? 'p-1' : 'px-4 py-2'} ${msg.direction === 'outbound' ? (msg.sender_type === 'humano' ? 'bg-blue-100 rounded-tr-none border border-blue-200' : 'bg-[#dcf8c6] rounded-tr-none') : 'bg-white rounded-tl-none'}`}>
+                                            {msg.direction === 'outbound' && <div className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 opacity-60">{msg.sender_type === 'humano' ? <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>Tú (Humano)</> : <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zm8-6a1 1 0 100 2 1 1 0 000-2zm-1 4a1 1 0 00-1 1v4a1 1 0 102 0v-4a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>Bot</>}</div>}
+                                              {(msg.message_type === 'image' || msg.message_type === 'sticker') ? (
                                                 msg.content && msg.content.startsWith('http') ? (
                                                     <img onClick={() => { setModalImage(msg.content); setImageZoom(1); }} src={msg.content} alt="Imagen" className="rounded-[8px] max-w-full h-auto object-cover max-h-72 block cursor-pointer hover:opacity-95 transition-opacity" />
                                                 ) : (

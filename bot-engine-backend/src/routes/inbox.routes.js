@@ -8,4 +8,5 @@ router.post('/:id/chats/:phone/send', inboxController.sendReply);
 
 router.get('/:id/chats/:phone/session', inboxController.getChatSession);
 router.post('/:id/chats/:phone/toggle', inboxController.toggleBotStatus);
+router.post('/:id/chats/:phone/action', inboxController.sendQuickAction);
 module.exports = router;

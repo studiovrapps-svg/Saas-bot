@@ -87,12 +87,29 @@ const processWebhook = (req, res) => {
               } else {
                       user_message = "[Error descargando audio]";
                   }
+              } else if (msgObj.type === 'sticker') {
+                  const media_id = msgObj.sticker.id;
+                  const { downloadWhatsAppMedia } = require('../services/whatsapp.service');
+                  const { uploadImage } = require('../services/aws.service');
+                  const buffer = await downloadWhatsAppMedia(media_id, tenant.whatsapp_token);
+                  if (buffer) {
+                      const ext = 'webp';
+                      const fakeFile = {
+                          originalname: `sticker_${Date.now()}.${ext}`,
+                          buffer: buffer,
+                          mimetype: 'image/webp'
+                      };
+                      const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
+                      user_message = `[Sticker: ${s3Url}]`;
+                  } else {
+                      user_message = "[Error descargando sticker]";
+                  }
               } else {
                   user_message = `[Multimedia o documento adjunto: ${msgObj.type}]`;
               }
             
             // Log incoming message
-            await logMessage(tenant.id, from, 'inbound', msgObj.type, user_message || `media`, null, 'received', profile_name);
+            await logMessage(tenant.id, from, 'inbound', msgObj.type, user_message || `media`, null, 'received', profile_name, 'customer');
             
             // GLOBAL MUTE CHECK (For human handoff in ANY tier)
             
@@ -172,6 +189,7 @@ const processWebhook = (req, res) => {
                 };
 
                 if (msgObj.type === 'location' && state.step === 'awaiting_address') { user_message = `📍 Lat: ${msgObj.location.latitude}, Long: ${msgObj.location.longitude}`; }
+                if (msgObj.type === 'sticker') { await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, '¡Qué buen sticker! 😄 Pero por ahora soy un bot y solo puedo entender mensajes de texto o respuestas de los botones. Por favor usa texto para continuar.', tenant.id); return; }
                 if (msgObj.type === `text` || msgObj.type === `image` || (msgObj.type === `audio` && user_message) || (msgObj.type === `location` && user_message)) {
                     let text = user_message.toLowerCase();
 

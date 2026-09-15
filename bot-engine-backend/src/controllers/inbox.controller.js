@@ -41,7 +41,7 @@ const sendReply = async (req, res) => {
         const tenant = tenantRes.rows[0];
 
         // Send via Meta API
-        await sendWhatsAppText(tenant.whatsapp_phone_id, tenant.whatsapp_token, to, text, tenant_id);
+        await sendWhatsAppText(tenant.whatsapp_phone_id, tenant.whatsapp_token, to, text, tenant_id, 'humano');
         
         // Mute the bot for 2 hours if an agent replies, persisting it in the database
         const muteUntil = Date.now() + (2 * 60 * 60 * 1000);
@@ -92,5 +92,36 @@ const toggleBotStatus = async (req, res) => {
     }
 };
 
-module.exports = { getChats, getChatMessages, sendReply, getChatSession, toggleBotStatus };
+const sendQuickAction = async (req, res) => {
+    try {
+        const { action } = req.body;
+        const tenant_id = req.params.id;
+        const to = req.params.phone;
+        const { sendWhatsAppMenu } = require('../services/whatsapp.service');
+        const tenantRes = await pool.query('SELECT name, whatsapp_token, whatsapp_phone_id FROM tenants WHERE id = $1', [tenant_id]);
+        if (tenantRes.rows.length === 0) return res.status(404).json({ error: `Tenant no encontrado` });
+        const tenant = tenantRes.rows[0];
+        
+        if (action === 'menu') {
+            await sendWhatsAppMenu(tenant.whatsapp_phone_id, tenant.whatsapp_token, to, tenant_id, tenant.name);
+            
+            const muteUntil = Date.now() + (2 * 60 * 60 * 1000);
+            await pool.query(
+                `INSERT INTO chat_sessions (tenant_id, user_phone, status, state_data) 
+                 VALUES ($1, $2, 'humano', $3) 
+                 ON CONFLICT (tenant_id, user_phone) 
+                 DO UPDATE SET status = 'humano', state_data = jsonb_set(COALESCE(chat_sessions.state_data, \'{}\'), \'{muted_until}\', $4::jsonb)`,
+                [tenant_id, to, JSON.stringify({ muted_until: muteUntil }), muteUntil.toString()]
+            );
+            res.json({ message: `Acción enviada` });
+        } else {
+            res.status(400).json({ error: `Acción no soportada` });
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: `Error interno` });
+    }
+};
+
+module.exports = { getChats, getChatMessages, sendReply, getChatSession, toggleBotStatus, sendQuickAction };
 
