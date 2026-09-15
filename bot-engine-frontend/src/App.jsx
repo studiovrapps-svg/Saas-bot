@@ -2327,12 +2327,37 @@ function ClientDashboard() {
                                 <div ref={bottomAnchorRef} className="h-1 flex-shrink-0" />
                                 {[...chatMessages].reverse().map(msg => (
                                     <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[70%] rounded-xl shadow-sm relative ${msg.direction === 'outbound' && <div className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 opacity-60">{msg.sender_type === 'humano' ? <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>Tú (Humano)</> : <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zm8-6a1 1 0 100 2 1 1 0 000-2zm-1 4a1 1 0 00-1 1v4a1 1 0 102 0v-4a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>Bot</>}</div>}
-                                              {(msg.message_type === 'image' || msg.message_type === 'sticker') ? 'p-1' : 'px-4 py-2'} ${msg.direction === 'outbound' ? (msg.sender_type === 'humano' ? 'bg-blue-100 rounded-tr-none border border-blue-200' : 'bg-[#dcf8c6] rounded-tr-none') : 'bg-white rounded-tl-none'}`}>
-                                            {msg.direction === 'outbound' && <div className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 opacity-60">{msg.sender_type === 'humano' ? <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>Tú (Humano)</> : <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zm8-6a1 1 0 100 2 1 1 0 000-2zm-1 4a1 1 0 00-1 1v4a1 1 0 102 0v-4a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>Bot</>}</div>}
+                                        <div className={`max-w-[70%] rounded-xl shadow-sm relative ${(msg.message_type === 'image' || msg.message_type === 'sticker') ? 'p-1' : 'px-4 py-2'} ${msg.direction === 'outbound' ? (msg.sender_type === 'humano' ? 'bg-blue-100 rounded-tr-none border border-blue-200' : 'bg-[#dcf8c6] rounded-tr-none') : 'bg-white rounded-tl-none'}`}>
+                                            
+                                            {msg.direction === 'outbound' && (
+                                                <div className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 opacity-60">
+                                                    {msg.sender_type === 'humano' ? (
+                                                        <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"></path></svg>Tú (Humano)</>
+                                                    ) : (
+                                                        <><svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zm8-6a1 1 0 100 2 1 1 0 000-2zm-1 4a1 1 0 00-1 1v4a1 1 0 102 0v-4a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>Bot</>
+                                                    )}
+                                                </div>
+                                            )}
+
                                               {(msg.message_type === 'image' || msg.message_type === 'sticker') ? (
                                                 msg.content && msg.content.startsWith('http') ? (
                                                     <img onClick={() => { setModalImage(msg.content); setImageZoom(1); }} src={msg.content} alt="Imagen" className="rounded-[8px] max-w-full h-auto object-cover max-h-72 block cursor-pointer hover:opacity-95 transition-opacity" />
+                                                ) : (msg.content && (msg.content.includes('[Imagen: ') || msg.content.includes('[Sticker: '))) ? (
+                                                      <>
+                                                          <img onClick={() => { const url = msg.content.match(/\[(Imagen|Sticker): (.*?)\]/)?.[2]; setModalImage(url); setImageZoom(1); }} src={msg.content.match(/\[(Imagen|Sticker): (.*?)\]/)?.[2]} alt="Media Outbound" className={`max-w-full h-auto object-cover block cursor-pointer hover:opacity-95 transition-opacity ${msg.content.includes('[Sticker:') ? 'w-32 h-32 rounded-none bg-transparent' : 'max-h-72 rounded-[8px]'}`} />
+                                                          <div className="text-sm px-2 pt-1 pb-2 whitespace-pre-wrap">{
+                                                              (() => {
+                                                                  const text = msg.content.replace(/\[(Imagen|Sticker): (.*?)\]\n?/, '');
+                                                                  if (!text) return null;
+                                                                  return text.split(/(*[^*]+*)/g).map((part, i) => {
+                                                                      if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+                                                                          return <strong key={i}>{part.slice(1, -1)}</strong>;
+                                                                      }
+                                                                      return part;
+                                                                  });
+                                                              })()
+                                                          }</div>
+                                                      </>
                                                 ) : (
                                                     <div className="text-sm text-gray-500 italic">🖼️ Imagen enviada</div>
                                                 )
@@ -2345,11 +2370,22 @@ function ClientDashboard() {
                                                     <p className="text-sm text-gray-800 italic leading-relaxed mt-1">"{msg.content}"</p>
                                                 </div>
                                             ) : msg.message_type === 'interactive' ? (
-                                                <div className="text-sm font-semibold text-gray-700 bg-gray-100 p-2 rounded border border-gray-200">{msg.content} <span className="text-xs block text-gray-400 font-normal mt-1">(Menú Interactivo)</span></div>
+                                                <div className="text-sm font-semibold text-gray-700 bg-white/50 p-2 rounded border border-gray-200 shadow-sm">{msg.content} <span className="text-[10px] block text-gray-500 font-bold uppercase mt-1 opacity-70">(Menú Interactivo)</span></div>
                                             ) : (
-                                                <p className="text-sm text-gray-800 whitespace-pre-wrap">{msg.content}</p>
+                                                <p className="text-sm text-gray-800 whitespace-pre-wrap">{
+                                                    (() => {
+                                                        const text = msg.content;
+                                                        if (!text) return null;
+                                                        return text.split(/(*[^*]+*)/g).map((part, i) => {
+                                                            if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+                                                                return <strong key={i}>{part.slice(1, -1)}</strong>;
+                                                            }
+                                                            return part;
+                                                        });
+                                                    })()
+                                                }</p>
                                             )}
-                                            <div className="text-xs text-gray-400 text-right mt-1 flex justify-end items-center gap-1">
+                                            <div className="text-[10px] text-gray-400 font-medium text-right mt-1.5 flex justify-end items-center gap-1 opacity-80">
                                                 {new Date(msg.created_at).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'})}
                                                 {msg.direction === 'outbound' && (
                                                     msg.delivery_status === 'read' ? (
