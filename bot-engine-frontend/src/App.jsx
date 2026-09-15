@@ -2342,14 +2342,14 @@ function ClientDashboard() {
                                               {(msg.message_type === 'image' || msg.message_type === 'sticker') ? (
                                                 msg.content && msg.content.startsWith('http') ? (
                                                     <img onClick={() => { setModalImage(msg.content); setImageZoom(1); }} src={msg.content} alt="Imagen" className="rounded-[8px] max-w-full h-auto object-cover max-h-72 block cursor-pointer hover:opacity-95 transition-opacity" />
-                                                ) : (msg.content && (msg.content.includes('[Imagen: ') || msg.content.includes('[Sticker: '))) ? (
+                                                ) : (msg.content && msg.content.match(/\[(Imagen|Sticker): (https?:\/\/[^\]]+)\]/)) ? (
                                                       <>
                                                           <img onClick={() => { const url = msg.content.match(/\[(Imagen|Sticker): (.*?)\]/)?.[2]; setModalImage(url); setImageZoom(1); }} src={msg.content.match(/\[(Imagen|Sticker): (.*?)\]/)?.[2]} alt="Media Outbound" className={`max-w-full h-auto object-cover block cursor-pointer hover:opacity-95 transition-opacity ${msg.content.includes('[Sticker:') ? 'w-32 h-32 rounded-none bg-transparent' : 'max-h-72 rounded-[8px]'}`} />
                                                           <div className="text-sm px-2 pt-1 pb-2 whitespace-pre-wrap">{
                                                               (() => {
                                                                   const text = msg.content.replace(/\[(Imagen|Sticker): (.*?)\]\n?/, '');
                                                                   if (!text) return null;
-                                                                  return text.split(/(*[^*]+*)/g).map((part, i) => {
+                                                                  return text.split(/(\*[^*]+\*)/g).map((part, i) => {
                                                                       if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
                                                                           return <strong key={i}>{part.slice(1, -1)}</strong>;
                                                                       }
@@ -2376,7 +2376,7 @@ function ClientDashboard() {
                                                     (() => {
                                                         const text = msg.content;
                                                         if (!text) return null;
-                                                        return text.split(/(*[^*]+*)/g).map((part, i) => {
+                                                        return text.split(/(\*[^*]+\*)/g).map((part, i) => {
                                                             if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
                                                                 return <strong key={i}>{part.slice(1, -1)}</strong>;
                                                             }

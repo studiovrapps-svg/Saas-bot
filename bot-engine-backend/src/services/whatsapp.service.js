@@ -153,7 +153,7 @@ async function sendWhatsAppImage(phone_number_id, token, to, imageUrl, caption =
         const data = await response.json();
         if (data.error) await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'META_API', message: 'Error enviando imagen', details: data.error });
         const wamid = data?.messages?.[0]?.id || null;
-        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'image', caption || '[Imagen enviada]', wamid);
+        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'image', caption ? `[Imagen: ${imageUrl}]\n${caption}` : `[Imagen: ${imageUrl}]`, wamid);
         return data;
     } catch (e) {
         console.error("Error enviando imagen WhatsApp:", e);
