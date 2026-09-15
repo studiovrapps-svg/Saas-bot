@@ -3051,45 +3051,49 @@ function ClientDashboard() {
                 }}
             />
             
-            <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2 pr-2">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
                 {productos.length === 0 ? (
                     <p className="text-center text-gray-500 py-8">No hay productos disponibles.</p>
                 ) : (
                     <>
                         <p id="product-picker-empty" className="text-center text-gray-500 py-8" style={{display: 'none'}}>No hay resultados.</p>
-                        {productos.map(p => (
-                            <button 
-                                key={p.id}
-                                className="product-picker-item flex items-center gap-4 p-3 hover:bg-gray-50 border border-transparent hover:border-gray-100 rounded-xl transition-all text-left group"
-                                data-name={p.name}
-                                onClick={async () => {
-                                    setShowProductPicker(false);
-                                    try {
-                                        await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/action`, {
-                                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'product', product_id: p.id })
-                                        });
-                                        setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: `[Imagen: ${p.image_url || ''}]\n*📦 ${p.name}*\n\n💰 Precio: Q${p.price}\n\n${p.description || ''}`.trim(), created_at: new Date().toISOString(), sender_type: 'humano', message_type: p.image_url ? 'image' : 'text' }]);
-                                    } catch(e) { console.error(e); }
-                                }}
-                            >
-                                {p.image_url ? (
-                                    <img src={p.image_url} alt={p.name} className="w-12 h-12 object-cover rounded-lg border border-gray-200 shrink-0 bg-gray-100" />
-                                ) : (
-                                    <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200">
-                                        <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {productos.map(p => (
+                                <button 
+                                    key={p.id}
+                                    className="product-picker-item relative flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-blue-500 hover:shadow-md transition-all text-left group focus:outline-none"
+                                    data-name={p.name}
+                                    onClick={async () => {
+                                        setShowProductPicker(false);
+                                        try {
+                                            await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/action`, {
+                                                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'product', product_id: p.id })
+                                            });
+                                            setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: `[Imagen: ${p.image_url || ''}]\n*📦 ${p.name}*\n\n💰 Precio: Q${p.price}\n\n${p.description || ''}`.trim(), created_at: new Date().toISOString(), sender_type: 'humano', message_type: p.image_url ? 'image' : 'text' }]);
+                                        } catch(e) { console.error(e); }
+                                    }}
+                                >
+                                    <div className="relative w-full h-28 bg-gray-50 flex items-center justify-center overflow-hidden">
+                                        {p.image_url ? (
+                                            <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                        ) : (
+                                            <svg className="w-8 h-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                        )}
+                                        
+                                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <div className="bg-white text-blue-600 rounded-full p-2.5 shadow-lg transform scale-75 group-hover:scale-100 transition-transform flex items-center gap-1">
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
+                                            </div>
+                                        </div>
                                     </div>
-                                )}
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-bold text-gray-900 truncate text-sm">{p.name}</p>
-                                    <p className="text-blue-600 font-semibold text-xs mt-0.5">Q{p.price}</p>
-                                </div>
-                                <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <span className="bg-black text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full shadow-sm flex items-center gap-1">
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg> Enviar
-                                    </span>
-                                </div>
-                            </button>
-                        ))}
+
+                                    <div className="p-3 w-full border-t border-gray-100 bg-white">
+                                        <p className="font-bold text-gray-900 truncate text-[13px]">{p.name}</p>
+                                        <p className="text-blue-600 font-bold text-xs mt-0.5">Q{p.price}</p>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
                     </>
                 )}
             </div>
