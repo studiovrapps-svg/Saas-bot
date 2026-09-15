@@ -1525,9 +1525,11 @@ function ClientDashboard() {
 
   const handleMetaLogin = () => {
         if (!window.FB) {
-            alert("🛑 El SDK de Facebook no ha cargado. Revisa tu consola de internet.");
+            alert("⚠️ El SDK de Facebook no ha cargado. Revisa tu consola de internet.");
             return;
         }
+
+        setLoading(true);
 
         try {
             window.FB.init({
@@ -1545,6 +1547,7 @@ function ClientDashboard() {
                 const accessToken = response.authResponse.code || response.authResponse.accessToken;
                 linkWhatsAppAccount(accessToken);
             } else {
+                setLoading(false);
                 alert('Cancelaste la ventana de Meta o hubo un error de conexión.');
             }
         }, {
@@ -2422,17 +2425,29 @@ function ClientDashboard() {
                     </div>
 
                     <div className="flex-1 w-full flex flex-col justify-center">
-                        {tenantInfo && tenantInfo.whatsapp_token ? (
-                            <div className="bg-green-50 border border-green-200 text-green-800 font-bold p-6 rounded-xl flex flex-col items-center gap-2 text-center">
-                                <svg className="w-12 h-12 text-green-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                ¡Cuenta Conectada y Activa!
-                                <p className="text-sm font-normal mt-1 text-green-700">El bot está listo para recibir mensajes.</p>
-                                <button onClick={() => alert("Para desconectar, hazlo desde tu app de WhatsApp Business en Configuración > Herramientas para la empresa > Meta.")} className="mt-4 text-xs underline text-green-600 hover:text-green-800">¿Cómo desconectar?</button>
+                        {tenantInfo && tenantInfo.whatsapp_phone_id ? (
+                            <div className="bg-green-50 border border-green-200 text-green-800 p-6 rounded-xl flex flex-col items-center gap-3 text-center">
+                                {tenantInfo.meta_picture ? (
+                                    <img src={tenantInfo.meta_picture} alt="WhatsApp Profile" className="w-20 h-20 rounded-full border-4 border-green-200 shadow-sm" />
+                                ) : (
+                                    <svg className="w-16 h-16 text-green-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                )}
+                                <div className="font-bold text-lg">{tenantInfo.meta_name || "Cuenta Conectada"}</div>
+                                <div className="text-xs font-mono bg-green-100 text-green-700 px-2 py-1 rounded-md">ID: {tenantInfo.whatsapp_phone_id}</div>
+                                <p className="text-sm font-normal mt-2 text-green-700">El bot está activo y escuchando en Coexistencia.</p>
+                                <button onClick={() => alert("Para desconectar, hazlo desde tu app de WhatsApp Business en Configuración > Herramientas para la empresa > Meta.")} className="mt-2 text-xs underline text-green-600 hover:text-green-800">¿Cómo desconectar?</button>
                             </div>
                         ) : (
-                            <button onClick={handleMetaLogin} disabled={loading} className="w-full bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold py-4 px-6 rounded-xl shadow-lg transition flex items-center justify-center gap-3 text-lg">
-                                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                                {loading ? 'Cargando...' : 'Conectar con Facebook'}
+                            <button onClick={handleMetaLogin} disabled={loading} className={`w-full ${loading ? 'bg-gray-400' : 'bg-[#1877F2] hover:bg-[#166FE5]'} text-white font-bold py-4 px-6 rounded-xl shadow-lg transition flex items-center justify-center gap-3 text-lg`}>
+                                {loading ? (
+                                    <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                ) : (
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                                )}
+                                {loading ? 'Abriendo Facebook...' : 'Conectar con Facebook'}
                             </button>
                         )}
                     </div>
