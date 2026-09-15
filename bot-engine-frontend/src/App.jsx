@@ -2136,6 +2136,7 @@ function ClientDashboard() {
                                       ) : (
                                           <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full shadow-sm" title="Atendido por el Bot"></span>
                                       )}
+                                    <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white rounded-full shadow-sm ${chat.session_status === 'humano' ? 'bg-orange-400' : 'bg-blue-500'}`} title={chat.session_status === 'humano' ? 'Requiere atención humana' : 'Atendido por el Bot'}></span>
                                   </div>
                                 <div className="overflow-hidden flex-1">
                                     <div className="font-bold text-gray-900 truncate">{name}</div>
@@ -2179,6 +2180,7 @@ function ClientDashboard() {
                                     onClick={async () => {
                                         const newStatus = chatStatus === 'bot' ? 'humano' : 'bot';
                                         setChatStatus(newStatus);
+                                        setChatList(prev => prev.map(c => c.customer_phone === activeChat ? { ...c, session_status: newStatus } : c));
                                         await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/toggle`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json' },
