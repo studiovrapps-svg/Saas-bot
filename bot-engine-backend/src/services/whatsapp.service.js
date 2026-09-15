@@ -66,9 +66,9 @@ async function sendInteractiveButtons(phone_number_id, token, to, text, buttons,
     try {
         const payload = {
             messaging_product: "whatsapp", to: to, type: "interactive",
-            interactive: {
+                interactive: {
                 type: "button", body: { text: text },
-                action: { buttons: buttons }
+                action: { buttons: buttons.map(b => ({ type: "reply", reply: { id: b.id, title: b.title } })) }
             }
         };
         const response = await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {

@@ -74,27 +74,20 @@ const processWebhook = (req, res) => {
                       user_message = "[Error descargando imagen]";
                   }
               } else if (msgObj.type === `audio`) {
-                  // Procesar audio (Transcribir y eliminar archivo)
                   const media_id = msgObj.audio.id;
                   const { downloadWhatsAppMedia } = require('../services/whatsapp.service');
                   const { transcribeAudio } = require('../services/ai.service');
-                  const fs = require('fs');
-                  const path = require('path');
-                  
                   const buffer = await downloadWhatsAppMedia(media_id, tenant.whatsapp_token);
                   if (buffer) {
-                      const crypto = require('crypto');
-                      const os = require('os');
-                      const tmpPath = path.join(os.tmpdir(), `audio_${crypto.randomUUID()}.ogg`);
-                      fs.writeFileSync(tmpPath, buffer);
-                        try {
-                            user_message = await transcribeAudio(tmpPath, tenant.id);
-                        } catch(e) {
-                            user_message = "[Error transcribiendo audio]";
-                        }
-                        // Delay file deletion to allow Groq SDK to close the file handle on Windows (prevents EBUSY crash)
-                        setTimeout(() => { if (fs.existsSync(tmpPath)) { try { fs.unlinkSync(tmpPath); } catch(e){} } }, 5000);
+                      try {
+                          user_message = await transcribeAudio(buffer, tenant.id);
+                      } catch(e) {
+                          user_message = "[Error transcribiendo audio]";
+                      }
                   } else {
+                      user_message = "[Error descargando audio]";
+                  }
+              } else {
                       user_message = "[Error descargando audio]";
                   }
               } else {
@@ -181,7 +174,7 @@ const processWebhook = (req, res) => {
                     await logMessage(tenant.id, from, 'outbound', 'interactive', 'Menú Principal enviado');
                 };
 
-                if (msgObj.type === `text` || (msgObj.type === `audio` && user_message)) {
+                if (msgObj.type === `text` || msgObj.type === `image` || (msgObj.type === `audio` && user_message)) {
                     let text = user_message.toLowerCase();
 
                     // Skip state destruction if in cart decision
@@ -201,7 +194,7 @@ const processWebhook = (req, res) => {
                         
                         state.step = 'cart_decision'; state.cart = cart; await setSessionState(tenant.id, from, state);
                         
-                        await sendInteractiveButtons(`🛒 *Producto añadido al carrito.*
+                        await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `🛒 *Producto añadido al carrito.*
 
 ¿Deseas seguir comprando o finalizar tu pedido?`, [
                             { id: `btn_add_more`, title: `🛍️ Seguir comprando` },
@@ -260,7 +253,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                             state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
                             await pool.query(`UPDATE chat_sessions SET status = 'humano', last_interaction = NOW() WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
                         } else {
-                            await sendInteractiveButtons(`¿Puedo ayudarte con algo más?`, [
+                            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `¿Puedo ayudarte con algo más?`, [
                                 { id: `btn_main_menu`, title: `🏠 Menú Principal` }
                             ]);
                         }
@@ -324,7 +317,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                                 await pool.query(`UPDATE chat_sessions SET status = 'humano', last_interaction = NOW() WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
                             } else {
                                 // Siempre mandar el escape despuǸs de un FAQ normal
-                                await sendInteractiveButtons(`¿Qué más deseas hacer?`, [
+                                await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `¿Qué más deseas hacer?`, [
                                     { id: `btn_main_menu`, title: `🏠 Menú Principal` }
                                 ]);
                             }
