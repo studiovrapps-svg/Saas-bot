@@ -102,9 +102,9 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
 
         const completion = await groq.chat.completions.create({
             messages: messages,
-            model: "openai/gpt-oss-20b",
+            model: "llama3-70b-8192",
             temperature: 0.2,
-            max_tokens: 250,
+            max_tokens: 2048,
             tools: tools,
             tool_choice: "auto"
         });
@@ -129,13 +129,15 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
         if (responseMessage.tool_calls) {
             for (const toolCall of responseMessage.tool_calls) {
                 if (toolCall.function.name === 'create_order') {
-                    const args = JSON.parse(toolCall.function.arguments);
-                    let cartText = args.items.map(i => `${i.quantity}x ${i.product}`).join(', ');
-                    await pool.query(
-                        `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address, status) VALUES ($1, $2, $3, $4, 'pendiente')`,
-                        [tenant_id, to, JSON.stringify(args.items), args.delivery_address]
-                    );
-                    finalResponseText += `\n\n✅ ¡Pedido registrado con éxito! Resumen: ${cartText}. Dirección: ${args.delivery_address}.`;
+                    try {
+                        const args = JSON.parse(toolCall.function.arguments);
+                        let cartText = args.items.map(i => `${i.quantity}x ${i.product}`).join(', ');
+                        await pool.query(
+                            `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address, status) VALUES ($1, $2, $3, $4, 'pendiente')`,
+                            [tenant_id, to, JSON.stringify(args.items), args.delivery_address]
+                        );
+                        finalResponseText += `\n\n✅ ¡Pedido registrado con éxito! Resumen: ${cartText}. Dirección: ${args.delivery_address}.`;
+                    } catch(e) { console.error("Error parsing create_order args", e); }
                 } else if (toolCall.function.name === 'transfer_to_human') {
                     
                     // Update state in DB instead of cache
