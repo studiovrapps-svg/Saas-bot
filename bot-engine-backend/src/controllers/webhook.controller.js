@@ -47,8 +47,8 @@ const processWebhook = (req, res) => {
               let user_message = ``;
               let msgObj = body.entry[0].changes[0].value.messages[0];
               
-              if (msgObj.type === `text` || (msgObj.type === `audio` && user_message)) {
-                  user_message = msgObj.text.body;
+              if (msgObj.type === `text`) {
+                  user_message = msgObj.text?.body || '';
               } else if (msgObj.type === `interactive`) {
                   if (msgObj.interactive.type === `list_reply`) user_message = msgObj.interactive.list_reply.title;
                   else if (msgObj.interactive.type === `button_reply`) user_message = msgObj.interactive.button_reply.title;
@@ -169,33 +169,11 @@ const processWebhook = (req, res) => {
                     await logMessage(tenant.id, from, 'outbound', 'interactive', 'Menú Principal enviado');
                 };
 
-                const sendInteractiveButtons = async (text, buttons) => {
-                    let payload = {
-                        messaging_product: `whatsapp`,
-                        to: from,
-                        type: `interactive`,
-                        interactive: {
-                            type: `button`,
-                            body: { text: text },
-                            action: {
-                                buttons: buttons.map(b => ({ type: `reply`, reply: { id: b.id, title: b.title } }))
-                            }
-                        }
-                    };
-                    await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
-                        method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-                    });
-                    await logMessage(tenant.id, from, 'outbound', 'interactive', text);
-                };
-
                 if (msgObj.type === `text` || (msgObj.type === `audio` && user_message)) {
                     let text = user_message.toLowerCase();
 
                     // Skip state destruction if in cart decision
-                    if (state.step === 'cart_decision') { 
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor, selecciona una de las opciones en los botones de arriba para continuar tu compra.', tenant.id); 
-                        return; 
-                    }
+                    if (state.step === 'cart_decision') { if (['cancelar', 'menu', 'salir', 'volver', 'reiniciar'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor, selecciona una de las opciones en los botones de arriba para continuar tu compra, o escribe *cancelar* para volver al inicio.', tenant.id); return; }
 
                     // --- PILAR 4: HANDOFF A HUMANO (Por texto) ---
                     if ((text.includes(`asesor`) || text.includes(`humano`)) && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
@@ -216,12 +194,14 @@ He notificado a nuestro equipo. Un asesor humano leerá este chat y te responder
 
                     // --- PILAR 1: MÁQUINA DE ESTADOS (CARRITO) ---
                     if (state.step === 'awaiting_quantity') {
-                        if (['cancelar', 'menu', 'salir', 'volver'].some(k => user_message.toLowerCase().includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } if (isNaN(Number(user_message)) || Number(user_message) <= 0) {
-                            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, ingresa una cantidad numérica válida (ejemplo: 1, 2, 3).`, tenant.id);
+                        if (['cancelar', 'menu', 'salir', 'volver'].some(k => user_message.toLowerCase().includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } 
+                        const parsedQty = parseInt(user_message.trim(), 10);
+                        if (isNaN(parsedQty) || parsedQty <= 0 || parsedQty.toString() !== user_message.trim() || parsedQty > 999) {
+                            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, ingresa una cantidad numérica entera válida (ejemplo: 1, 2, 3) o escribe *cancelar*.`, tenant.id);
                             return;
                         }
                         let cart = state.cart || [];
-                        cart.push({ product: state.product, quantity: Number(user_message), price: state.price || 0 });
+                        cart.push({ product: state.product, quantity: parsedQty, price: state.price || 0 });
                         
                         state.step = 'cart_decision'; state.cart = cart; await setSessionState(tenant.id, from, state);
                         
@@ -234,7 +214,7 @@ He notificado a nuestro equipo. Un asesor humano leerá este chat y te responder
                         return;
                     } 
                     else if (state.step === 'awaiting_address') {
-                        if (user_message.trim().length < 5) {
+                        if (['cancelar', 'menu', 'salir', 'volver'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Pedido cancelado. Volviendo al menú principal...', tenant.id); await sendMainMenu(); return; } if (user_message.trim().length < 5) {
                             await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, indícanos una dirección de entrega válida y detallada.`, tenant.id);
                             return;
                         }
