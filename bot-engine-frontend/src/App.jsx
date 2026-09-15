@@ -2453,33 +2453,27 @@ function ClientDashboard() {
                                                 </button>
                                                 
                                                 {showAttachmentMenu && (
-                                                    <div className="absolute bottom-10 left-0 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 w-64 z-50 flex flex-col gap-1 animate-fade-in-up">
+                                                    <div className="absolute bottom-12 left-0 bg-white rounded-xl shadow-lg border border-gray-100 p-1.5 w-44 z-50 flex flex-col animate-fade-in-up">
                                                         <button 
                                                             type="button"
                                                             onClick={() => { setShowAttachmentMenu(false); sendQuickAction('menu'); }}
-                                                            className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl transition-colors text-left"
+                                                            className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-100 rounded-lg transition-colors text-left group"
                                                         >
-                                                            <div className="bg-blue-100 text-blue-600 p-2 rounded-full">
-                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                                                            <div className="text-gray-500 group-hover:text-blue-500 transition-colors">
+                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                                                             </div>
-                                                            <div>
-                                                                <p className="font-bold text-sm text-gray-900">Menú del Catálogo</p>
-                                                                <p className="text-xs text-gray-500">Enviar lista interactiva</p>
-                                                            </div>
+                                                            <span className="font-semibold text-[13px] text-gray-700 group-hover:text-gray-900">Enviar Menú</span>
                                                         </button>
                                                         
                                                         <button 
                                                             type="button"
                                                             onClick={() => { setShowAttachmentMenu(false); setShowProductPicker(true); }}
-                                                            className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl transition-colors text-left"
+                                                            className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-100 rounded-lg transition-colors text-left group"
                                                         >
-                                                            <div className="bg-green-100 text-green-600 p-2 rounded-full">
-                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                                                            <div className="text-gray-500 group-hover:text-green-500 transition-colors">
+                                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                                                             </div>
-                                                            <div>
-                                                                <p className="font-bold text-sm text-gray-900">Producto Individual</p>
-                                                                <p className="text-xs text-gray-500">Enviar un producto específico</p>
-                                                            </div>
+                                                            <span className="font-semibold text-[13px] text-gray-700 group-hover:text-gray-900">Enviar Producto</span>
                                                         </button>
                                                     </div>
                                                 )}
