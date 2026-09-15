@@ -77,7 +77,7 @@ const toggleBotStatus = async (req, res) => {
         
         if (status === 'bot') {
             await pool.query(
-                "UPDATE chat_sessions SET status = 'bot', state_data = state_data - 'muted_until' WHERE tenant_id = $1 AND user_phone = $2",
+                "UPDATE chat_sessions SET status = 'bot', state_data = COALESCE(state_data, '{}'::jsonb) - 'muted_until' WHERE tenant_id = $1 AND user_phone = $2",
                 [tenant_id, to]
             );
         } else {
