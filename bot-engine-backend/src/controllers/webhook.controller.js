@@ -236,7 +236,7 @@ He notificado a nuestro equipo. Un asesor humano leerá este chat y te responder
 
 *Resumen de tu pedido:*
 ${cartSummary}
-📍 Dirección: ${user_message}
+📍 Datos de entrega: ${user_message}
 
 Un asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
                         await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
@@ -266,9 +266,17 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                     let matchedRule = rules.find(r => r.q && r.q.length >= 3 && text.includes(r.q.toLowerCase()));
                     if (matchedRule) {
                         await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, matchedRule.a, tenant.id);
-                        await sendInteractiveButtons(`¿Puedo ayudarte con algo más?`, [
-                            { id: `btn_main_menu`, title: `🔙 Menú Principal` }
-                        ]);
+                        
+                        if (matchedRule.action === 'catalog') {
+                            await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
+                        } else if (matchedRule.action === 'transfer') {
+                            state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
+                            await pool.query(`UPDATE chat_sessions SET status = 'humano', updated_at = NOW() WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
+                        } else {
+                            await sendInteractiveButtons(`¿Puedo ayudarte con algo más?`, [
+                                { id: `btn_main_menu`, title: `🏠 Menú Principal` }
+                            ]);
+                        }
                         return;
                     }
 
@@ -308,7 +316,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                         await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
                     } else if (btnId === `btn_checkout`) {
                         state.step = 'awaiting_address'; await setSessionState(tenant.id, from, state);
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `📝 Por favor, indícanos tu dirección de entrega completa para poder enviar tu pedido:`, tenant.id);
+                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `🛍️ Por favor, indícanos tu **Nombre Completo y Dirección exacta** para poder procesar y enviar tu pedido:`, tenant.id);
                     } else if (btnId.startsWith(`btn_faq_`)) {
                         let menus = tenant.tier1_menu || [];
                         let idx = parseInt(btnId.replace(`btn_faq_`, ``));
@@ -318,10 +326,18 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                             } else {
                                 await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, menus[idx].response, tenant.id);
                             }
-                            // Siempre mandar el escape después de un FAQ
-                            await sendInteractiveButtons(`¿Qué más deseas hacer?`, [
-                                { id: `btn_main_menu`, title: `🔙 Menú Principal` }
-                            ]);
+                            
+                            if (menus[idx].action === 'catalog') {
+                                await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
+                            } else if (menus[idx].action === 'transfer') {
+                                state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
+                                await pool.query(`UPDATE chat_sessions SET status = 'humano', updated_at = NOW() WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
+                            } else {
+                                // Siempre mandar el escape despuǸs de un FAQ normal
+                                await sendInteractiveButtons(`¿Qué más deseas hacer?`, [
+                                    { id: `btn_main_menu`, title: `🏠 Menú Principal` }
+                                ]);
+                            }
                         }
                     } else if (btnId.startsWith(`prod_`)) {
                         let prodId = btnId.replace(`prod_`, ``);
