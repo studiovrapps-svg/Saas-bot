@@ -16,7 +16,12 @@ window.fetch = async function () {
             config.headers['Authorization'] = `Bearer ${token}`;
         }
     }
-    return originalFetch.apply(this, [resource, config]);
+    const response = await originalFetch.apply(this, [resource, config]);
+    if ((response.status === 401 || response.status === 403) && typeof resource === 'string' && resource.includes('/api/') && !resource.includes('/api/login')) {
+        localStorage.removeItem('token');
+        window.location.href = '/';
+    }
+    return response;
 };
 
 function Login() {
