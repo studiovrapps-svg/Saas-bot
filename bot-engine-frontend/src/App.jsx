@@ -2416,21 +2416,53 @@ function ClientDashboard() {
                                 </button>
                             )}
 
-                            <div className="p-3 bg-gray-100 border-t border-gray-200 z-10 relative">
-                                <form onSubmit={handleSendReply} className="flex gap-2 bg-white rounded-full p-1 pl-4 shadow-sm border border-gray-300 items-center">
-                                    <input 
-                                        type="text" 
-                                        value={replyText}
-                                        onChange={e => setReplyText(e.target.value)}
-                                        placeholder="Escribe un mensaje..."
-                                        className="flex-1 outline-none bg-transparent text-sm"
-                                    />
-                                    <button type="submit" disabled={!replyText.trim()} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
-                                    </button>
-                                </form>
-                            </div>
-                        </>
+                            {(() => {
+                                const lastInboundMessage = chatMessages.slice().reverse().find(m => m.direction === 'inbound');
+                                const isWithin24Hours = lastInboundMessage ? (Date.now() - new Date(lastInboundMessage.created_at).getTime() < 24 * 60 * 60 * 1000) : true;
+                                
+                                const sendQuickAction = async (action) => {
+                                    try {
+                                        await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/action`, {
+                                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action })
+                                        });
+                                        setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: action === 'menu' ? 'Catálogo interactivo de productos enviado.' : action, created_at: new Date().toISOString(), sender_type: 'humano', message_type: 'interactive' }]);
+                                    } catch(e) { console.error(e); }
+                                };
+
+                                return (
+                                    <div className="bg-gray-100 border-t border-gray-200 z-10 relative">
+                                        <div className="bg-gray-200 p-2 flex gap-2 items-center px-4 overflow-x-auto custom-scrollbar">
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-2">Acciones Rápidas:</span>
+                                            <button type="button" onClick={() => sendQuickAction('menu')} disabled={!isWithin24Hours} className="px-3 py-1.5 bg-white border border-gray-300 rounded shadow-sm text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1 transition-all hover:shadow hover:text-blue-600">
+                                                <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg> 
+                                                Enviar Catálogo de Productos
+                                            </button>
+                                        </div>
+                                        {!isWithin24Hours && chatMessages.length > 0 && (
+                                            <div className="bg-red-50 text-red-600 text-[10px] text-center py-2 font-bold uppercase tracking-wide border-b border-red-100 flex justify-center items-center gap-1.5">
+                                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"></path></svg>
+                                                Políticas de Meta: Han pasado más de 24 horas desde el último mensaje del cliente.
+                                            </div>
+                                        )}
+                                        <div className="p-3">
+                                            <form onSubmit={handleSendReply} className="flex gap-2 bg-white rounded-full p-1 pl-4 shadow-sm border border-gray-300 items-center">
+                                                <input 
+                                                    type="text" 
+                                                    value={replyText}
+                                                    onChange={e => setReplyText(e.target.value)}
+                                                    placeholder={isWithin24Hours ? "Escribe un mensaje..." : "El chat está bloqueado por Meta (24h)"}
+                                                    className="flex-1 outline-none bg-transparent text-sm disabled:opacity-50"
+                                                    disabled={!isWithin24Hours}
+                                                />
+                                                <button type="submit" disabled={!replyText.trim() || !isWithin24Hours} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+</>
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center bg-gray-50 text-gray-400 p-8 text-center">
                             <svg className="w-16 h-16 mb-4 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" /></svg>
