@@ -194,8 +194,8 @@ const processWebhook = (req, res) => {
                     let text = user_message.toLowerCase();
 
                     // Skip state destruction if in cart decision
-                    if (state.step === 'cart_decision') { if (['cancelar', 'menu', 'salir', 'volver', 'reiniciar'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona una opción para continuar tu compra o escribe *cancelar*:', [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id); return; }
-                      if (state.step === 'adding_more') { if (['cancelar', 'menu', 'salir', 'volver'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona un producto del catálogo, o escribe *cancelar*.', tenant.id); return; }
+                    if (state.step === 'cart_decision') { if (['cancelar', 'menu', 'salir', 'volver', 'reiniciar'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona una opción para continuar tu compra o escribe cancelar:', [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id); return; }
+                      if (state.step === 'adding_more') { if (['cancelar', 'menu', 'salir', 'volver'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona un producto del catálogo, o escribe cancelar.', tenant.id); return; }
 
                     // Handoff movido globalmente arriba
                     // --- PILAR 1: MÁQUINA DE ESTADOS (CARRITO) ---
@@ -203,7 +203,7 @@ const processWebhook = (req, res) => {
                         if (['cancelar', 'menu', 'salir', 'volver'].some(k => user_message.toLowerCase().includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } 
                         const parsedQty = parseInt(user_message.trim(), 10);
                         if (isNaN(parsedQty) || parsedQty <= 0 || parsedQty.toString() !== user_message.trim() || parsedQty > 999) {
-                            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, ingresa una cantidad numérica entera válida (ejemplo: 1, 2, 3) o escribe *cancelar*.`, tenant.id);
+                            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, ingresa una cantidad numérica entera válida (ejemplo: 1, 2, 3) o escribe cancelar.`, tenant.id);
                             return;
                         }
                         let cart = state.cart || [];
@@ -232,9 +232,9 @@ const processWebhook = (req, res) => {
                         );
                         
                         let cartSummary = cart.map(item => `📦 ${item.quantity}x ${item.product}`).join('\n');
-                        let finalMsg = `🛍️ *¡Pedido registrado con éxito!*
+                        let finalMsg = `🛍️ ¡Pedido registrado con éxito!
 
-*Resumen de tu pedido:*
+Resumen de tu pedido:
 ${cartSummary}
 📍 Datos de entrega: ${user_message}
 
@@ -347,7 +347,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                                 state.price = pRes.rows[0].price;
                                 productoElegido = pRes.rows[0].name;
                                 if (pRes.rows[0].image_url) {
-                                    await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, pRes.rows[0].image_url, `Seleccionaste: *${productoElegido}*`, tenant.id);
+                                    await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, pRes.rows[0].image_url, `Seleccionaste: ${productoElegido}`, tenant.id);
                                 }
                             }
                         } catch(e) { console.error(`Error buscando info de producto`, e); }

@@ -30,7 +30,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, tenant_id, tenant_name
 
 INSTRUCCIONES CRÍTICAS (DEBES OBEDECERLAS ESTRICTAMENTE):
 1. RESPUESTAS CORTAS: Responde SIEMPRE en 1 o 2 párrafos cortos. NUNCA generes respuestas largas, listas infinitas ni te repitas.
-2. FORMATO: Usa emojis y formato de WhatsApp (*negrita*).
+2. FORMATO LIMPIO: Usa emojis, pero NUNCA uses asteriscos (*) ni negritas para formatear listas de productos ni texto. Escríbelos normales. NUNCA dejes líneas en blanco (doble enter) entre cada producto de una lista, mantenlos pegados en líneas consecutivas.
 3. HERRAMIENTA DE PEDIDOS: NUNCA ejecutes la función 'create_order' a menos que el cliente ya te haya dicho EXACTAMENTE qué productos quiere, las cantidades y su DIRECCIÓN DE ENTREGA completa. Si falta algún dato, PREGÚNTALO primero.
 4. CATÁLOGO REAL: Usa el catálogo provisto abajo. NUNCA inventes productos ni precios.
 5. IMÁGENES: Para enviar una foto de un producto, escribe exactamente [IMG_X] (donde X es el ID_FOTO). NO repitas este tag múltiples veces sin sentido.
@@ -142,7 +142,11 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
                                     const qty = parseInt(item.quantity, 10);
                                     if (isNaN(qty) || qty <= 0 || qty > 999) continue;
                                     
-                                    const dbProd = prodResult.rows.find(p => p.name.toLowerCase() === item.product.toLowerCase());
+                                    const itemProdLow = item.product.toLowerCase().trim();
+                                      const dbProd = prodResult.rows.find(p => {
+                                          const dbLow = p.name.toLowerCase().trim();
+                                          return dbLow === itemProdLow || dbLow.includes(itemProdLow) || itemProdLow.includes(dbLow);
+                                      });
                                     if (dbProd) {
                                         validatedItems.push({ product: dbProd.name, quantity: qty, price: dbProd.price });
                                     }
