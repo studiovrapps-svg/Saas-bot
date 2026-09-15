@@ -2430,32 +2430,37 @@ function ClientDashboard() {
                                 };
 
                                 return (
-                                    <div className="bg-gray-100 border-t border-gray-200 z-10 relative">
-                                        <div className="bg-gray-200 p-2 flex gap-2 items-center px-4 overflow-x-auto custom-scrollbar">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-2">Acciones Rápidas:</span>
-                                            <button type="button" onClick={() => sendQuickAction('menu')} disabled={!isWithin24Hours} className="px-3 py-1.5 bg-white border border-gray-300 rounded shadow-sm text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1 transition-all hover:shadow hover:text-blue-600">
-                                                <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg> 
-                                                Enviar Catálogo de Productos
-                                            </button>
-                                        </div>
+                                    <div className="bg-[#f0f2f5] border-t border-gray-200 z-10 relative flex flex-col">
                                         {!isWithin24Hours && chatMessages.length > 0 && (
                                             <div className="bg-red-50 text-red-600 text-[10px] text-center py-2 font-bold uppercase tracking-wide border-b border-red-100 flex justify-center items-center gap-1.5">
                                                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"></path></svg>
                                                 Políticas de Meta: Han pasado más de 24 horas desde el último mensaje del cliente.
                                             </div>
                                         )}
-                                        <div className="p-3">
-                                            <form onSubmit={handleSendReply} className="flex gap-2 bg-white rounded-full p-1 pl-4 shadow-sm border border-gray-300 items-center">
+                                        <div className="px-4 py-3 flex items-center gap-3">
+                                            {/* Store / Catalog Attachment Button */}
+                                            <button 
+                                                type="button" 
+                                                onClick={() => sendQuickAction('menu')} 
+                                                disabled={!isWithin24Hours} 
+                                                title="Enviar Catálogo de Productos"
+                                                className="text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50 shrink-0"
+                                            >
+                                                <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                                            </button>
+
+                                            {/* Chat Form */}
+                                            <form onSubmit={handleSendReply} className="flex-1 flex gap-2 bg-white rounded-lg p-1.5 pl-4 shadow-sm items-center border border-gray-200/60">
                                                 <input 
                                                     type="text" 
                                                     value={replyText}
                                                     onChange={e => setReplyText(e.target.value)}
-                                                    placeholder={isWithin24Hours ? "Escribe un mensaje..." : "El chat está bloqueado por Meta (24h)"}
-                                                    className="flex-1 outline-none bg-transparent text-sm disabled:opacity-50"
+                                                    placeholder={isWithin24Hours ? "Escribe un mensaje" : "El chat está bloqueado por Meta (24h)"}
+                                                    className="flex-1 outline-none bg-transparent text-sm disabled:opacity-50 text-gray-700 placeholder-gray-400"
                                                     disabled={!isWithin24Hours}
                                                 />
-                                                <button type="submit" disabled={!replyText.trim() || !isWithin24Hours} className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                                                <button type="submit" disabled={!replyText.trim() || !isWithin24Hours} className="p-2 text-blue-500 hover:text-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
                                                 </button>
                                             </form>
                                         </div>
