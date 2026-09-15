@@ -1255,6 +1255,8 @@ function ClientDashboard() {
         return () => observer.disconnect();
     }, [chatList.length]);
   const [replyText, setReplyText] = useState("");
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [showProductPicker, setShowProductPicker] = useState(false);
   const messagesEndRef = useRef(null);
     const chatContainerRef = useRef(null);
 
@@ -2420,12 +2422,12 @@ function ClientDashboard() {
                                 const lastInboundMessage = chatMessages.slice().reverse().find(m => m.direction === 'inbound');
                                 const isWithin24Hours = lastInboundMessage ? (Date.now() - new Date(lastInboundMessage.created_at).getTime() < 24 * 60 * 60 * 1000) : true;
                                 
-                                const sendQuickAction = async (action) => {
+                                const sendQuickAction = async (action, product_id = null) => {
                                     try {
                                         await fetch(`${API_URL}/tenant/${tenantId}/chats/${activeChat}/action`, {
-                                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action })
+                                            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, product_id })
                                         });
-                                        setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: action === 'menu' ? 'Catálogo interactivo de productos enviado.' : action, created_at: new Date().toISOString(), sender_type: 'humano', message_type: 'interactive' }]);
+                                        setChatMessages(prev => [...prev, { id: Date.now(), direction: 'outbound', content: action === 'menu' ? 'Catálogo interactivo enviado.' : (action === 'product' ? 'Producto enviado manualmente.' : action), created_at: new Date().toISOString(), sender_type: 'humano', message_type: 'interactive' }]);
                                     } catch(e) { console.error(e); }
                                 };
 
@@ -2439,15 +2441,49 @@ function ClientDashboard() {
                                         )}
                                         <div className="px-4 py-3 flex items-center gap-3">
                                             {/* Store / Catalog Attachment Button */}
-                                            <button 
-                                                type="button" 
-                                                onClick={() => sendQuickAction('menu')} 
-                                                disabled={!isWithin24Hours} 
-                                                title="Enviar Catálogo de Productos"
-                                                className="text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50 shrink-0"
-                                            >
-                                                <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
-                                            </button>
+                                            <div className="relative">
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => setShowAttachmentMenu(!showAttachmentMenu)} 
+                                                    disabled={!isWithin24Hours} 
+                                                    title="Acciones Rápidas"
+                                                    className="text-gray-500 hover:text-gray-800 transition-colors disabled:opacity-50 shrink-0"
+                                                >
+                                                    <svg className="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v16m8-8H4" /></svg>
+                                                </button>
+                                                
+                                                {showAttachmentMenu && (
+                                                    <div className="absolute bottom-10 left-0 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 w-64 z-50 flex flex-col gap-1 animate-fade-in-up">
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => { setShowAttachmentMenu(false); sendQuickAction('menu'); }}
+                                                            className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl transition-colors text-left"
+                                                        >
+                                                            <div className="bg-blue-100 text-blue-600 p-2 rounded-full">
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                                                            </div>
+                                                            <div>
+                                                                <p className="font-bold text-sm text-gray-900">Menú del Catálogo</p>
+                                                                <p className="text-xs text-gray-500">Enviar lista interactiva</p>
+                                                            </div>
+                                                        </button>
+                                                        
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => { setShowAttachmentMenu(false); setShowProductPicker(true); }}
+                                                            className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-xl transition-colors text-left"
+                                                        >
+                                                            <div className="bg-green-100 text-green-600 p-2 rounded-full">
+                                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                                                            </div>
+                                                            <div>
+                                                                <p className="font-bold text-sm text-gray-900">Producto Individual</p>
+                                                                <p className="text-xs text-gray-500">Enviar un producto específico</p>
+                                                            </div>
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
 
                                             {/* Chat Form */}
                                             <form onSubmit={handleSendReply} className="flex-1 flex gap-2 bg-white rounded-lg p-1.5 pl-4 shadow-sm items-center border border-gray-200/60">
