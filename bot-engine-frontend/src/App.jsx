@@ -2129,9 +2129,14 @@ function ClientDashboard() {
                                 onClick={() => { setActiveChat(chat.customer_phone); setMessageLimit(50); }}
                                 className={`p-4 border-b border-gray-100 cursor-pointer transition flex items-center gap-3 ${activeChat === chat.customer_phone ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-100 border-l-4 border-l-transparent'}`}
                             >
-                                <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0">
-                                    {initial}
-                                </div>
+                                <div className="relative w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0">
+                                      {initial}
+                                      {chat.session_status === 'humano' ? (
+                                          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-orange-400 border-2 border-white rounded-full shadow-sm" title="Requiere atención humana"></span>
+                                      ) : (
+                                          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full shadow-sm" title="Atendido por el Bot"></span>
+                                      )}
+                                  </div>
                                 <div className="overflow-hidden flex-1">
                                     <div className="font-bold text-gray-900 truncate">{name}</div>
                                     <div className="flex justify-between items-center mt-0.5">
