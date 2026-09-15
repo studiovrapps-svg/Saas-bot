@@ -124,7 +124,7 @@ const processWebhook = (req, res) => {
             }
 
             // --- PILAR 4 (GLOBAL): HANDOFF A HUMANO (Por texto) ---
-            if (user_message && (user_message.toLowerCase().includes('asesor') || user_message.toLowerCase().includes('humano')) && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
+            if (msgObj.type === 'text' && user_message && (user_message.toLowerCase().includes('asesor') || user_message.toLowerCase().includes('humano')) && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
                 state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
                 await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status, state_data) VALUES ($1, $2, 'humano', $3) ON CONFLICT (tenant_id, user_phone) DO UPDATE SET status = 'humano', last_interaction = NOW(), state_data = jsonb_set(COALESCE(chat_sessions.state_data, \'{}\'), \'{muted_until}\', $4::jsonb)`, [tenant.id, from, JSON.stringify({ muted_until: state.muted_until }), state.muted_until.toString()]);
                 await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `👩‍💻 *Conectando con un asesor...*\n\nHe notificado a nuestro equipo. Un asesor humano leerá este chat y te responderá a la brevedad. (El bot se pausará temporalmente).`, tenant.id);
@@ -171,11 +171,13 @@ const processWebhook = (req, res) => {
                     await logMessage(tenant.id, from, 'outbound', 'interactive', 'Menú Principal enviado');
                 };
 
-                if (msgObj.type === `text` || msgObj.type === `image` || (msgObj.type === `audio` && user_message)) {
+                if (msgObj.type === 'location' && state.step === 'awaiting_address') { user_message = `📍 Lat: ${msgObj.location.latitude}, Long: ${msgObj.location.longitude}`; }
+                if (msgObj.type === `text` || msgObj.type === `image` || (msgObj.type === `audio` && user_message) || (msgObj.type === `location` && user_message)) {
                     let text = user_message.toLowerCase();
 
                     // Skip state destruction if in cart decision
-                    if (state.step === 'cart_decision') { if (['cancelar', 'menu', 'salir', 'volver', 'reiniciar'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor, selecciona una de las opciones en los botones de arriba para continuar tu compra, o escribe *cancelar* para volver al inicio.', tenant.id); return; }
+                    if (state.step === 'cart_decision') { if (['cancelar', 'menu', 'salir', 'volver', 'reiniciar'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona una opción para continuar tu compra o escribe *cancelar*:', [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id); return; }
+                      if (state.step === 'adding_more') { if (['cancelar', 'menu', 'salir', 'volver'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona un producto del catálogo, o escribe *cancelar*.', tenant.id); return; }
 
                     // Handoff movido globalmente arriba
                     // --- PILAR 1: MÁQUINA DE ESTADOS (CARRITO) ---
@@ -187,7 +189,7 @@ const processWebhook = (req, res) => {
                             return;
                         }
                         let cart = state.cart || [];
-                        cart.push({ product: state.product, quantity: parsedQty, price: state.price || 0 });
+                        cart.push({ product_id: state.product_id || null, product: state.product, quantity: parsedQty, price: state.price || 0 });
                         
                         state.step = 'cart_decision'; state.cart = cart; await setSessionState(tenant.id, from, state);
                         
@@ -195,8 +197,7 @@ const processWebhook = (req, res) => {
 
 ¿Deseas seguir comprando o finalizar tu pedido?`, [
                             { id: `btn_add_more`, title: `🛍️ Seguir comprando` },
-                            { id: `btn_checkout`, title: `✅ Finalizar pedido` }
-                        ]);
+                            { id: `btn_checkout`, title: `✅ Finalizar pedido` }], tenant.id);
                         return;
                     } 
                     else if (state.step === 'awaiting_address') {
@@ -205,10 +206,15 @@ const processWebhook = (req, res) => {
                             return;
                         }
                         let cart = state.cart || [];
-                        await delSessionState(tenant.id, from); state = await getSessionState(tenant.id, from);
+                        if (cart.length === 0) { await delSessionState(tenant.id, from); await sendMainMenu(); return; }
+                        // Insert into orders FIRST
+                        await pool.query(
+                            `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address) VALUES ($1, $2, $3, $4)`,
+                            [tenant.id, from, JSON.stringify(cart), user_message]
+                        );
                         
                         let cartSummary = cart.map(item => `📦 ${item.quantity}x ${item.product}`).join('\n');
-                        let finalMsg = `✅ *¡Pedido registrado con éxito!*
+                        let finalMsg = `🛍️ *¡Pedido registrado con éxito!*
 
 *Resumen de tu pedido:*
 ${cartSummary}
@@ -217,11 +223,7 @@ ${cartSummary}
 Un asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
                         await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
                         
-                        // Insert into orders
-                        await pool.query(
-                            `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address) VALUES ($1, $2, $3, $4)`,
-                            [tenant.id, from, JSON.stringify(cart), user_message]
-                        );
+                        await delSessionState(tenant.id, from); state = await getSessionState(tenant.id, from);
                         
                         // Pasar a humano
                         state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
@@ -251,8 +253,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                             await pool.query(`UPDATE chat_sessions SET status = 'humano', last_interaction = NOW() WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
                         } else {
                             await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `¿Puedo ayudarte con algo más?`, [
-                                { id: `btn_main_menu`, title: `🏠 Menú Principal` }
-                            ]);
+                                { id: `btn_main_menu`, title: `🏠 Menú Principal` }], tenant.id);
                         }
                         return;
                     }
@@ -315,8 +316,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                             } else {
                                 // Siempre mandar el escape despuǸs de un FAQ normal
                                 await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `¿Qué más deseas hacer?`, [
-                                    { id: `btn_main_menu`, title: `🏠 Menú Principal` }
-                                ]);
+                                    { id: `btn_main_menu`, title: `🏠 Menú Principal` }], tenant.id);
                             }
                         }
                     } else if (btnId.startsWith(`prod_`)) {
@@ -334,7 +334,7 @@ Un asesor humano se contactará contigo por aquí en breve para coordinar el pag
                             }
                         } catch(e) { console.error(`Error buscando info de producto`, e); }
 
-                        state.step = 'awaiting_quantity'; state.product = productoElegido; await setSessionState(tenant.id, from, state);
+                        state.step = 'awaiting_quantity'; state.product = productoElegido; state.product_id = prodId; await setSessionState(tenant.id, from, state);
                         await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Excelente elección! 📦\n\n¿Cuántas unidades deseas llevar? (Responde con un número)`, tenant.id);
 
                     } else {
