@@ -133,6 +133,14 @@ const processWebhook = (req, res) => {
                 return; // Silent mode active
             }
 
+            // --- PILAR 4 (GLOBAL): HANDOFF A HUMANO (Por texto) ---
+            if (user_message && (user_message.toLowerCase().includes('asesor') || user_message.toLowerCase().includes('humano')) && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
+                state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
+                await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status, state_data) VALUES ($1, $2, 'humano', $3) ON CONFLICT (tenant_id, user_phone) DO UPDATE SET status = 'humano', last_interaction = NOW(), state_data = jsonb_set(COALESCE(chat_sessions.state_data, \'{}\'), \'{muted_until}\', $4::jsonb)`, [tenant.id, from, JSON.stringify({ muted_until: state.muted_until }), state.muted_until.toString()]);
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `👩‍💻 *Conectando con un asesor...*\n\nHe notificado a nuestro equipo. Un asesor humano leerá este chat y te responderá a la brevedad. (El bot se pausará temporalmente).`, tenant.id);
+                return;
+            }
+
             if (tenant.bot_tier === 1) {
                 // Manejo de estado de pedido (Opción 3 y fotos de producto)
                 
@@ -179,23 +187,7 @@ const processWebhook = (req, res) => {
                     // Skip state destruction if in cart decision
                     if (state.step === 'cart_decision') { if (['cancelar', 'menu', 'salir', 'volver', 'reiniciar'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor, selecciona una de las opciones en los botones de arriba para continuar tu compra, o escribe *cancelar* para volver al inicio.', tenant.id); return; }
 
-                    // --- PILAR 4: HANDOFF A HUMANO (Por texto) ---
-                    if ((text.includes(`asesor`) || text.includes(`humano`)) && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
-                        state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state); // 2 horas
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `👨‍💼 *Conectando con un asesor...*
-
-He notificado a nuestro equipo. Un asesor humano leerá este chat y te responderá a la brevedad. (El bot se pausará temporalmente).`, tenant.id);
-                        
-                        // Pasar sesión a humano en DB
-                        const sessionResult = await pool.query(`SELECT id FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
-                        if (sessionResult.rows.length > 0) {
-                            await pool.query(`UPDATE chat_sessions SET status = 'humano' WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
-                        } else {
-                            await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status) VALUES ($1, $2, 'humano')`, [tenant.id, from]);
-                        }
-                        return;
-                    }
-
+                    // Handoff movido globalmente arriba
                     // --- PILAR 1: MÁQUINA DE ESTADOS (CARRITO) ---
                     if (state.step === 'awaiting_quantity') {
                         if (['cancelar', 'menu', 'salir', 'volver'].some(k => user_message.toLowerCase().includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } 

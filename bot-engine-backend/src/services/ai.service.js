@@ -111,8 +111,8 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
             if (completion.usage) {
                 const pTokens = completion.usage.prompt_tokens || 0;
                 const cTokens = completion.usage.completion_tokens || 0;
-                // Groq Llama 3 8b pricing estimation: ~$0.05/1M prompt, ~$0.08/1M completion
-                const cost = (pTokens / 1000000 * 0.05) + (cTokens / 1000000 * 0.08);
+                // Groq gpt-oss-20b pricing estimation: ~$0.075/1M prompt, ~$0.30/1M completion
+                const cost = (pTokens / 1000000 * 0.075) + (cTokens / 1000000 * 0.30);
                 await pool.query(
                     'INSERT INTO usage_logs (tenant_id, prompt_tokens, completion_tokens, cost_usd) VALUES ($1, $2, $3, $4)',
                     [tenant_id, pTokens, cTokens, cost]
@@ -134,12 +134,18 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
                         } else if (!args.delivery_address || args.delivery_address.trim().length < 4) {
                             finalResponseText += `\n\n⚠️ Para registrar tu pedido, por favor bríndame tu dirección de entrega completa.`;
                         } else {
-                            // Validate items against DB
+                            // Validate items against DB safely
                             let validatedItems = [];
-                            for (let item of args.items) {
-                                const dbProd = prodResult.rows.find(p => p.name.toLowerCase() === item.product.toLowerCase());
-                                if (dbProd && item.quantity > 0) {
-                                    validatedItems.push({ product: dbProd.name, quantity: item.quantity, price: dbProd.price });
+                            if (Array.isArray(args.items)) {
+                                for (let item of args.items) {
+                                    if (!item.product || typeof item.product !== 'string') continue;
+                                    const qty = parseInt(item.quantity, 10);
+                                    if (isNaN(qty) || qty <= 0 || qty > 999) continue;
+                                    
+                                    const dbProd = prodResult.rows.find(p => p.name.toLowerCase() === item.product.toLowerCase());
+                                    if (dbProd) {
+                                        validatedItems.push({ product: dbProd.name, quantity: qty, price: dbProd.price });
+                                    }
                                 }
                             }
                             if (validatedItems.length === 0) {
@@ -177,8 +183,9 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
                 imagesToSend.push(match[1]);
                 textToSend = textToSend.replace(match[0], '');
             }
-            
-            await sendWhatsAppText(phone_number_id, token, to, textToSend, tenant_id);
+            if (textToSend.trim().length > 0) {
+                await sendWhatsAppText(phone_number_id, token, to, textToSend.trim(), tenant_id);
+            }
 
             for (let prod_id of imagesToSend) {
                 try {
@@ -194,15 +201,20 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
             }
         }
 
-    } catch (error) { console.error(`Error AI:`, error); }
+    } catch (error) {
+    console.error(`Error AI:`, error);
+    const { sendWhatsAppText } = require('./whatsapp.service');
+    await sendWhatsAppText(phone_number_id, token, to, "Lo siento, estoy experimentando dificultades técnicas en este momento. Por favor intenta de nuevo más tarde.", tenant_id);
+}
 }
 
-const fs = require('fs');
+const { toFile } = require('groq-sdk/uploads');
 
-async function transcribeAudio(filePath, tenant_id = null) {
+async function transcribeAudio(buffer, tenant_id = null) {
     try {
+        const fileObj = await toFile(buffer, 'audio.ogg');
         const completion = await groq.audio.transcriptions.create({
-            file: fs.createReadStream(filePath),
+            file: fileObj,
             model: "whisper-large-v3-turbo",
             language: "es", // Forcing Spanish for better regional accuracy
             response_format: "verbose_json"

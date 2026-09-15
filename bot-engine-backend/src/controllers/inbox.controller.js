@@ -63,7 +63,7 @@ const sendReply = async (req, res) => {
 
 const getChatSession = async (req, res) => {
     try {
-        const result = await pool.query('SELECT status, state_data FROM chat_sessions WHERE tenant_id =  AND user_phone = ', [req.params.id, req.params.phone]);
+        const result = await pool.query('SELECT status, state_data FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2', [req.params.id, req.params.phone]);
         res.json(result.rows[0] || { status: 'bot' });
     } catch (error) { res.status(500).json({ error: 'Error interno' }); }
 };
@@ -77,12 +77,12 @@ const toggleBotStatus = async (req, res) => {
         
         if (status === 'bot') {
             await pool.query(
-                "UPDATE chat_sessions SET status = 'bot', state_data = state_data - 'muted_until' WHERE tenant_id =  AND user_phone = ",
+                "UPDATE chat_sessions SET status = 'bot', state_data = state_data - 'muted_until' WHERE tenant_id = $1 AND user_phone = $2",
                 [tenant_id, to]
             );
         } else {
             await pool.query(
-                "INSERT INTO chat_sessions (tenant_id, user_phone, status, state_data) VALUES (, , 'humano', ) ON CONFLICT (tenant_id, user_phone) DO UPDATE SET status = 'humano', state_data = jsonb_set(COALESCE(chat_sessions.state_data, '{}'), '{muted_until}', ::jsonb)",
+                "INSERT INTO chat_sessions (tenant_id, user_phone, status, state_data) VALUES ($1, $2, 'humano', $3) ON CONFLICT (tenant_id, user_phone) DO UPDATE SET status = 'humano', state_data = jsonb_set(COALESCE(chat_sessions.state_data, '{}'), '{muted_until}', $4::jsonb)",
                 [tenant_id, to, JSON.stringify({ muted_until: muteUntil }), muteUntil.toString()]
             );
         }
