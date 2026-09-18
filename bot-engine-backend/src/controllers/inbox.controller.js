@@ -6,23 +6,27 @@ const getChats = async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 50;
         const result = await pool.query(`
-            SELECT customer_phone, MAX(customer_name) as customer_name, MAX(created_at) as last_activity
-            FROM messages WHERE tenant_id = $1 GROUP BY customer_phone ORDER BY last_activity DESC LIMIT $2
+            SELECT 
+                m.customer_phone, 
+                MAX(m.customer_name) as customer_name, 
+                MAX(m.created_at) as last_activity,
+                COALESCE(cs.status, 'bot') as session_status
+            FROM messages m
+            LEFT JOIN chat_sessions cs ON m.tenant_id = cs.tenant_id AND m.customer_phone = cs.user_phone
+            WHERE m.tenant_id = $1 
+            GROUP BY m.customer_phone, cs.status 
+            ORDER BY last_activity DESC 
+            LIMIT $2
         `, [req.params.id, limit]);
         res.json(result.rows);
-    } catch (error) { res.status(500).json({ error: `Error interno` }); }
+    } catch (error) { 
+        console.error(error);
+        res.status(500).json({ error: \`Error interno\` }); 
+    }
 };
 
 const getChatMessages = async (req, res) => {
-    try {
-        const limit = parseInt(req.query.limit) || 50;
-        const result = await pool.query(
-            `SELECT * FROM (
-                SELECT * FROM messages 
-                WHERE tenant_id = $1 AND customer_phone = $2 
-                ORDER BY created_at DESC 
-                LIMIT $3
-            ) sub ORDER BY created_at ASC`, 
+    try { const limit = parseInt(req.query.limit) || 50; const result = await pool.query(`SELECT * FROM (SELECT * FROM messages WHERE tenant_id = $1 AND customer_phone = $2 ORDER BY created_at DESC LIMIT $3) sub ORDER BY created_at ASC`, 
             [req.params.id, req.params.phone, limit]
         );
         res.json(result.rows);
@@ -151,4 +155,5 @@ const sendQuickAction = async (req, res) => {
 };
 
 module.exports = { getChats, getChatMessages, sendReply, getChatSession, toggleBotStatus, sendQuickAction };
+
 
