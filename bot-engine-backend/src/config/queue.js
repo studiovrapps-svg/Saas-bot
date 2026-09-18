@@ -19,7 +19,8 @@ async function startQueue() {
     const { sendWhatsAppTemplate } = require('../services/whatsapp.service');
     const pool = require('./db');
 
-    // En pg-boss v10: handler recibe un array [ job ] y se usa batchSize si se quiere procesar en lote
+    // En pg-boss v10: es necesario crear las colas antes de procesar o enviar
+    await boss.createQueue('send-campaign-message');
     await boss.work('send-campaign-message', { batchSize: 1 }, async ([ job ]) => {
         const { tenant_id, phone, template_name } = job.data;
         
@@ -40,6 +41,7 @@ async function startQueue() {
     });
 
     // Worker para procesar Webhooks de Meta (Anti-Timeout)
+    await boss.createQueue('process-webhook');
     await boss.work('process-webhook', async (job) => {
         const { processWebhookJob } = require('../controllers/webhook.controller');
         try {
