@@ -140,7 +140,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                                     return `🛍️ ${item.quantity}x ${item.product}`;
                                 }).join('\n');
                                 const { sendTelegramAlert } = require('./telegram.service');
-                                sendTelegramAlert(tenant_id, `🚨 *NUEVO PEDIDO (Tier 2 - IA)* 🚨\n\n*Teléfono:* ${to}\n*Dirección:* ${args.delivery_address}\n\n*Productos:*\n${cartSummaryAlert}\n\n💰 *Total:* Q${total.toFixed(2)}`).catch(e => console.error(e));
+                                sendTelegramAlert(tenant_id, `🚨 <b>NUEVO PEDIDO (Tier 2 - IA)</b> 🚨\n\n<b>Teléfono:</b> ${to}\n<b>Dirección:</b> ${args.delivery_address}\n\n<b>Productos:</b>\n${cartSummaryAlert}\n\n💰 <b>Total:</b> Q${total.toFixed(2)}`).catch(e => console.error(e));
                                 // ----------------------
                             }
                         }
@@ -152,7 +152,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                     
                     // --- TELEGRAM ALERT ---
                     const { sendTelegramAlert } = require('./telegram.service');
-                    sendTelegramAlert(tenant_id, `⚠️ *NUEVO LEAD / ASISTENCIA* ⚠️\n\n*Teléfono:* ${to}\n\nUn cliente ha solicitado atención humana. El bot se ha pausado. Revisa WhatsApp para atenderlo.`).catch(e => console.error(e));
+                    sendTelegramAlert(tenant_id, `⚠️ <b>NUEVO LEAD / ASISTENCIA</b> ⚠️\n\n<b>Teléfono:</b> ${to}\n\nUn cliente ha solicitado atención humana. El bot se ha pausado. Revisa WhatsApp para atenderlo.`).catch(e => console.error(e));
                     // ----------------------
                 }
             }

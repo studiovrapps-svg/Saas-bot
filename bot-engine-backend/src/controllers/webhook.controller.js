@@ -317,7 +317,7 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             
             // --- TELEGRAM ALERT ---
             const { sendTelegramAlert } = require('../services/telegram.service');
-            sendTelegramAlert(tenant.id, `🚨 *NUEVO PEDIDO (Tier 1)* 🚨\n\n*Cliente:* ${cName}\n*Teléfono:* ${from}\n*Dirección:* ${user_message}\n\n*Productos:*\n${cartSummary}\n\n💰 *Total:* Q${total.toFixed(2)}`).catch(e => console.error(e));
+            sendTelegramAlert(tenant.id, `🚨 <b>NUEVO PEDIDO (Tier 1)</b> 🚨\n\n<b>Cliente:</b> ${cName}\n<b>Teléfono:</b> ${from}\n<b>Dirección:</b> ${user_message}\n\n<b>Productos:</b>\n${cartSummary}\n\n💰 <b>Total:</b> Q${total.toFixed(2)}`).catch(e => console.error(e));
             // ----------------------
 
             let orderId = Math.floor(1000 + Math.random() * 9000);
