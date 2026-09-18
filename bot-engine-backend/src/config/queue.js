@@ -40,7 +40,7 @@ async function startQueue() {
     });
 
     // Worker para procesar Webhooks de Meta (Anti-Timeout)
-    await boss.work('process-webhook', { batchSize: 5 }, async ([ job ]) => {
+    await boss.work('process-webhook', async (job) => {
         const { processWebhookJob } = require('../controllers/webhook.controller');
         try {
             await processWebhookJob(job.data.body);
