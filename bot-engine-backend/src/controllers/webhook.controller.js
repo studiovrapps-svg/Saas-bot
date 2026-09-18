@@ -314,6 +314,12 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
                 total += (item.price * item.quantity);
                 return `🛍️ ${item.quantity}x ${item.product}`;
             }).join('\n');
+            
+            // --- TELEGRAM ALERT ---
+            const { sendTelegramAlert } = require('../services/telegram.service');
+            sendTelegramAlert(tenant.id, `🚨 *NUEVO PEDIDO (Tier 1)* 🚨\n\n*Cliente:* ${cName}\n*Teléfono:* ${from}\n*Dirección:* ${user_message}\n\n*Productos:*\n${cartSummary}\n\n💰 *Total:* Q${total.toFixed(2)}`).catch(e => console.error(e));
+            // ----------------------
+
             let orderId = Math.floor(1000 + Math.random() * 9000);
             
             let finalMsg = `${COPY.ORDER_SUCCESS}\n*Orden #${orderId}*\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n💰 *Total a pagar: Q${total.toFixed(2)}*\n\n👤 Nombre: ${cName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;

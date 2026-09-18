@@ -43,6 +43,8 @@ app.use('/api/billing', billingRoutes);
 
 // Webhooks Meta
 app.use('/webhook', webhookRoutes);
+app.use('/api/telegram', require('./src/routes/telegram.routes'));
+
 
 const PORT = process.env.PORT || 3000;
 // Arranque secuencial: garantizar cola antes de aceptar tráfico

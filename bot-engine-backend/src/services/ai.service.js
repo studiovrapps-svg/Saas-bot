@@ -132,6 +132,16 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                                 let cartText = validatedItems.map(i => `${i.quantity}x ${i.product}`).join(', ');
                                 await orderRepo.createOrder(tenant_id, to, validatedItems, args.delivery_address);
                                 finalResponseText += `\n\n${COPY.ORDER_SUCCESS} Resumen: ${cartText}. Dirección: ${args.delivery_address}.`;
+                                
+                                // --- TELEGRAM ALERT ---
+                                let total = 0;
+                                let cartSummaryAlert = validatedItems.map(item => {
+                                    total += (item.price * item.quantity);
+                                    return `🛍️ ${item.quantity}x ${item.product}`;
+                                }).join('\n');
+                                const { sendTelegramAlert } = require('./telegram.service');
+                                sendTelegramAlert(tenant_id, `🚨 *NUEVO PEDIDO (Tier 2 - IA)* 🚨\n\n*Teléfono:* ${to}\n*Dirección:* ${args.delivery_address}\n\n*Productos:*\n${cartSummaryAlert}\n\n💰 *Total:* Q${total.toFixed(2)}`).catch(e => console.error(e));
+                                // ----------------------
                             }
                         }
                     } catch(e) { console.error("Error parsing create_order args", e); }
@@ -139,6 +149,11 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                     const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
                     await sessionRepo.setHumanStatus(tenant_id, to, mutedTimestamp);
                     finalResponseText += `\n\n${COPY.HANDOFF_INITIATED}`;
+                    
+                    // --- TELEGRAM ALERT ---
+                    const { sendTelegramAlert } = require('./telegram.service');
+                    sendTelegramAlert(tenant_id, `⚠️ *NUEVO LEAD / ASISTENCIA* ⚠️\n\n*Teléfono:* ${to}\n\nUn cliente ha solicitado atención humana. El bot se ha pausado. Revisa WhatsApp para atenderlo.`).catch(e => console.error(e));
+                    // ----------------------
                 }
             }
         }
