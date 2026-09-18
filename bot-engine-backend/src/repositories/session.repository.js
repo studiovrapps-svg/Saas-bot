@@ -2,14 +2,24 @@ const pool = require('../config/db');
 
 class SessionRepository {
     async getSessionState(tenant_id, user_phone) {
-        const res = await pool.query('SELECT state_data, status FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2', [tenant_id, user_phone]);
+        const res = await pool.query('SELECT state_data, status, customer_name FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2', [tenant_id, user_phone]);
         if (res.rows.length > 0) {
             return {
                 state: res.rows[0].state_data || {},
-                status: res.rows[0].status
+                status: res.rows[0].status,
+                customer_name: res.rows[0].customer_name
             };
         }
-        return { state: {}, status: 'bot' };
+        return { state: {}, status: 'bot', customer_name: null };
+    }
+
+    async setCustomerName(tenant_id, user_phone, name) {
+        await pool.query(
+            `INSERT INTO chat_sessions (tenant_id, user_phone, customer_name) VALUES ($1, $2, $3) 
+             ON CONFLICT (tenant_id, user_phone) 
+             DO UPDATE SET customer_name = $3, last_interaction = NOW()`,
+            [tenant_id, user_phone, name]
+        );
     }
 
     async setSessionState(tenant_id, user_phone, newState) {

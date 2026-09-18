@@ -100,7 +100,7 @@ const processWebhook = (req, res) => {
             }
 
             // 7. Gestión de Estado de Sesión (Máquina de Estados)
-            let { state, status: sessionStatus } = await sessionRepo.getSessionState(tenant.id, from);
+            let { state, status: sessionStatus, customer_name } = await sessionRepo.getSessionState(tenant.id, from);
             if (state.muted_until && Date.now() < state.muted_until) {
                 return; // Silent mode activo (Controlado por humano)
             }
@@ -116,7 +116,7 @@ const processWebhook = (req, res) => {
 
             // 9. ENRUTAMIENTO POR TIER
             if (tenant.bot_tier === 1) {
-                await handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state);
+                await handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name);
             } else if (tenant.bot_tier >= 2) {
                 if (user_message) {
                     await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, user_message, tenant.id);
@@ -166,7 +166,7 @@ async function extractMessageContent(msgObj, tenant) {
 }
 
 // Lógica de carrito Tier 1 abstraída
-async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state) {
+async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name) {
     let text = user_message.toLowerCase();
 
     // Enviar menú principal Helper
@@ -177,11 +177,16 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             if (m.title && m.title.trim().length > 0) rows.push({ id: `btn_faq_${idx}`, title: m.title.trim().substring(0, 24) });
         });
         
+        let greetingText = tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}. ¿Cómo podemos ayudarte hoy?`;
+        if (customer_name) {
+            greetingText = `¡Hola ${customer_name.split(' ')[0]}! 👋\nBienvenido a ${tenant.name}. ¿En qué podemos ayudarte?`;
+        }
+
         let payload = {
             messaging_product: 'whatsapp', to: from, type: 'interactive',
             interactive: {
                 type: 'list', header: { type: 'text', text: 'Menú Principal' },
-                body: { text: tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}. ¿Cómo podemos ayudarte hoy?` },
+                body: { text: greetingText },
                 action: { button: 'Opciones', sections: [{ title: 'Opciones disponibles', rows: rows.slice(0, 10) }] }
             }
         };
@@ -201,16 +206,29 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
         
         const isEscape = KEYWORDS.ESCAPE_FLOW.some(k => text.includes(k));
 
-        if (state.step === 'cart_decision' || state.step === 'adding_more' || state.step === 'awaiting_quantity' || state.step === 'awaiting_name' || state.step === 'awaiting_address') {
+        if (state.step === 'cart_decision' || state.step === 'adding_more' || state.step === 'awaiting_quantity' || state.step === 'awaiting_address' || state.step === 'awaiting_initial_name') {
             if (isEscape) {
                 await sessionRepo.clearSessionState(tenant.id, from);
-                await sendMainMenu();
+                if (customer_name) await sendMainMenu();
+                else await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Hola! Bienvenido a ${tenant.name}. Para brindarte una mejor atención, ¿me podrías decir tu nombre?`, tenant.id);
                 return;
             }
         }
 
+        if (state.step === 'awaiting_initial_name') {
+            if (user_message.trim().length < 3) {
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor, escribe un nombre válido (mínimo 3 letras) para continuar:', tenant.id);
+                return;
+            }
+            customer_name = user_message.trim();
+            await sessionRepo.setCustomerName(tenant.id, from, customer_name);
+            await sessionRepo.clearSessionState(tenant.id, from);
+            await sendMainMenu();
+            return;
+        }
+
         if (state.step === 'cart_decision') {
-            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona una opción para continuar tu compra o escribe *cancelar*:', [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id);
+            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona una opción para continuar tu compra o escribe *cancelar*:', [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}, {id: 'btn_clear_cart', title: 'Vaciar Carrito 🗑️'}], tenant.id);
             return;
         }
 
@@ -231,30 +249,29 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             state.step = 'cart_decision';
             delete state.pending_product;
             await sessionRepo.setSessionState(tenant.id, from, state);
-            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `Se agregó ${qty}x ${cart[cart.length-1].product} a tu pedido. ¿Qué deseas hacer ahora?`, [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id);
-            return;
-        }
-
-        if (state.step === 'awaiting_name') {
-            if (user_message.trim().length < 3) {
-                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor, escribe tu nombre completo (mínimo 3 caracteres), o escribe *cancelar*.', tenant.id);
-                return;
-            }
-            state.customer_name = user_message.trim();
-            state.step = 'awaiting_address';
-            await sessionRepo.setSessionState(tenant.id, from, state);
-            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Gracias, *${state.customer_name}*. Ahora escribe tu dirección completa de entrega:`, tenant.id);
+            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `Se agregó ${qty}x ${cart[cart.length-1].product} a tu pedido. ¿Qué deseas hacer ahora?`, [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}, {id: 'btn_clear_cart', title: 'Vaciar Carrito 🗑️'}], tenant.id);
             return;
         }
 
         if (state.step === 'awaiting_address') {
             let cart = state.cart || [];
-            let customerName = state.customer_name || 'Sin nombre';
-            let deliveryInfo = `Nombre: ${customerName}\nDirección: ${user_message}`;
+            if (cart.length === 0) {
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Tu carrito está vacío. Por favor selecciona productos del catálogo.', tenant.id);
+                await sessionRepo.clearSessionState(tenant.id, from);
+                return;
+            }
+            let cName = customer_name || 'Sin nombre';
+            let deliveryInfo = `Nombre: ${cName}\nDirección: ${user_message}`;
             await orderRepo.createOrder(tenant.id, from, cart, deliveryInfo);
             
-            let cartSummary = cart.map(item => `🛍️ ${item.quantity}x ${item.product}`).join('\n');
-            let finalMsg = `${COPY.ORDER_SUCCESS}\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n👤 Nombre: ${customerName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
+            let total = 0;
+            let cartSummary = cart.map(item => {
+                total += (item.price * item.quantity);
+                return `🛍️ ${item.quantity}x ${item.product}`;
+            }).join('\n');
+            let orderId = Math.floor(1000 + Math.random() * 9000);
+            
+            let finalMsg = `${COPY.ORDER_SUCCESS}\n*Orden #${orderId}*\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n💰 *Total a pagar: Q${total.toFixed(2)}*\n\n👤 Nombre: ${cName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
             await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
             
             await sessionRepo.clearSessionState(tenant.id, from);
@@ -274,8 +291,21 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
         // Default: Fallback o Menú
         await sessionRepo.clearSessionState(tenant.id, from);
         const isGreeting = KEYWORDS.GREETINGS.some(g => text.includes(g));
+        
+        if (!customer_name && !isGreeting) {
+            state.step = 'awaiting_initial_name';
+            await sessionRepo.setSessionState(tenant.id, from, state);
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Hola! Para brindarte una atención más personalizada, ¿me podrías decir tu nombre o apodo?`, tenant.id);
+            return;
+        }
+
         if (!isGreeting) {
             await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, COPY.FALLBACK_MISUNDERSTOOD, tenant.id);
+        } else if (!customer_name) {
+            state.step = 'awaiting_initial_name';
+            await sessionRepo.setSessionState(tenant.id, from, state);
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Hola! Bienvenido a ${tenant.name}. Para brindarte una mejor atención, ¿me podrías decir tu nombre?`, tenant.id);
+            return;
         }
         await sendMainMenu();
         return;
@@ -300,14 +330,25 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             return;
         }
 
+        if (btnId === 'btn_clear_cart') {
+            state.cart = [];
+            state.step = null;
+            await sessionRepo.setSessionState(tenant.id, from, state);
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Tu carrito ha sido vaciado.', tenant.id);
+            await sendMainMenu();
+            return;
+        }
+
         if (btnId === 'btn_add_more') {
             state.step = 'adding_more'; await sessionRepo.setSessionState(tenant.id, from, state);
             await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
             return;
         }
+        
         if (btnId === 'btn_checkout') {
-            state.step = 'awaiting_name'; await sessionRepo.setSessionState(tenant.id, from, state);
-            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Para finalizar tu pedido, por favor escribe tu *Nombre Completo*:', tenant.id);
+            state.step = 'awaiting_address'; await sessionRepo.setSessionState(tenant.id, from, state);
+            let promptName = customer_name ? customer_name.split(' ')[0] : 'amigo';
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Casi listos, ${promptName}! Para finalizar tu pedido, por favor escribe tu dirección completa de entrega:`, tenant.id);
             return;
         }
 
