@@ -1,6 +1,6 @@
 const socketConfig = require('../config/socket');
 const crypto = require('crypto');
-const { sendWhatsAppText, sendWhatsAppMenu, sendInteractiveButtons, logMessage, sendWhatsAppImage } = require('../services/whatsapp.service');
+const { sendWhatsAppText, sendWhatsAppMenu, sendInteractiveButtons, logMessage, sendWhatsAppImage, sendTypingIndicator } = require('../services/whatsapp.service');
 const { sendWhatsAppAI } = require('../services/ai.service');
 const { downloadWhatsAppMedia } = require('../services/whatsapp.service');
 const { uploadImage } = require('../services/aws.service');
@@ -97,6 +97,10 @@ const processWebhookJob = async (body) => {
                     throw error; 
                 }
             }
+
+            // --- SIMULAR ESCRIBIENDO ---
+            // No hacemos await para no bloquear el hilo, que se envíe en paralelo
+            sendTypingIndicator(phone_number_id, tenant.whatsapp_token, from, tenant.id).catch(err => console.error("Typing indicator error:", err));
 
             // 6. Extracción de Contenido del Mensaje
             let user_message = await extractMessageContent(msgObj, tenant);

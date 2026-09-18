@@ -163,4 +163,26 @@ async function sendWhatsAppImage(phone_number_id, token, to, imageUrl, caption =
     }
 }
 
-module.exports = { sendWhatsAppTemplate, logMessage, sendWhatsAppMenu, sendWhatsAppText, sendInteractiveButtons, downloadWhatsAppMedia, sendWhatsAppImage };
+async function sendTypingIndicator(phone_number_id, token, to, tenant_id = null) {
+    try {
+        const payload = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: to,
+            type: "command",
+            command: { event: "typing_started" }
+        };
+        const response = await fetch(\`https://graph.facebook.com/v19.0/\${phone_number_id}/messages\`, {
+            method: 'POST',
+            headers: { 'Authorization': \`Bearer \${token}\`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (data.error) await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'META_API', message: 'Error enviando typing indicator', details: data.error });
+        return data;
+    } catch (error) {
+        console.error(\`Error enviando typing indicator:\`, error);
+    }
+}
+
+module.exports = { sendWhatsAppTemplate, logMessage, sendWhatsAppMenu, sendWhatsAppText, sendInteractiveButtons, downloadWhatsAppMedia, sendWhatsAppImage, sendTypingIndicator };
