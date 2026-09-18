@@ -40,12 +40,34 @@ const processWebhook = async (req, res) => {
         }
     }
 
+    try {
+        // Optimización: Bypass de Cola para Tier 1 (Cero latencia)
+        let isTier1 = false;
         try {
-        const { boss } = require('../config/queue');
-        if (boss) {
-            await boss.send('process-webhook', { body: req.body });
-        } else {
+            if (req.body?.entry?.[0]?.changes?.[0]?.value?.messages) {
+                const phone_number_id = req.body.entry[0].changes[0].value.metadata.phone_number_id;
+                if (phone_number_id) {
+                    const tenant = await tenantRepo.getTenantByPhoneId(phone_number_id);
+                    if (tenant && tenant.bot_tier === 1) {
+                        isTier1 = true;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Error leyendo pre-tenant, asumiendo cola:", e.message);
+        }
+
+        if (isTier1) {
+            // Tier 1 es ultra-rápido, lo procesamos directo
             setImmediate(() => module.exports.processWebhookJob(req.body));
+        } else {
+            // Tier 2+ usa la cola para evitar Timeout de Meta
+            const { boss } = require('../config/queue');
+            if (boss) {
+                await boss.send('process-webhook', { body: req.body });
+            } else {
+                setImmediate(() => module.exports.processWebhookJob(req.body));
+            }
         }
     } catch (e) {
         console.error("Error enqueuing webhook:", e);

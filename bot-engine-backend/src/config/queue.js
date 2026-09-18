@@ -21,7 +21,7 @@ async function startQueue() {
 
     // En pg-boss v10: es necesario crear las colas antes de procesar o enviar
     await boss.createQueue('send-campaign-message');
-    await boss.work('send-campaign-message', { batchSize: 1 }, async (jobs) => {
+    await boss.work('send-campaign-message', { pollingIntervalSeconds: 0.5, batchSize: 5 }, async (jobs) => {
         const jobArray = Array.isArray(jobs) ? jobs : [jobs];
         for (const job of jobArray) {
             const { tenant_id, phone, template_name } = job.data;
@@ -44,7 +44,7 @@ async function startQueue() {
 
     // Worker para procesar Webhooks de Meta (Anti-Timeout)
     await boss.createQueue('process-webhook');
-    await boss.work('process-webhook', async (jobs) => {
+    await boss.work('process-webhook', { pollingIntervalSeconds: 0.5, batchSize: 5 }, async (jobs) => {
         const { processWebhookJob } = require('../controllers/webhook.controller');
         const jobArray = Array.isArray(jobs) ? jobs : [jobs];
         for (const job of jobArray) {
