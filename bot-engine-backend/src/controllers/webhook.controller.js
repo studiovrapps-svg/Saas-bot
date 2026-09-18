@@ -22,7 +22,7 @@ const verifyWebhook = (req, res) => {
     }
 };
 
-const processWebhook = (req, res) => {
+const processWebhook = async (req, res) => {
     // 1. Validar Firma Criptográfica de Meta
     if (process.env.META_APP_SECRET) {
         const signature = req.headers['x-hub-signature-256'];
