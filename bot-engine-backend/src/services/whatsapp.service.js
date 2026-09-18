@@ -163,14 +163,12 @@ async function sendWhatsAppImage(phone_number_id, token, to, imageUrl, caption =
     }
 }
 
-async function sendTypingIndicator(phone_number_id, token, to, tenant_id = null) {
+async function sendTypingIndicator(phone_number_id, token, message_id, tenant_id = null) {
     try {
         const payload = {
             messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to: to,
-            type: "command",
-            command: { event: "typing_started" }
+            message_id: message_id,
+            status: "read"
         };
         const response = await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
             method: 'POST',
@@ -178,10 +176,12 @@ async function sendTypingIndicator(phone_number_id, token, to, tenant_id = null)
             body: JSON.stringify(payload)
         });
         const data = await response.json();
-        if (data.error) await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'META_API', message: 'Error enviando typing indicator', details: data.error });
+        if (data.error && data.error.code !== 100) {
+            await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'META_API', message: 'Error enviando read receipt', details: data.error });
+        }
         return data;
     } catch (error) {
-        console.error(`Error enviando typing indicator:`, error);
+        console.error(`Error enviando read receipt:`, error);
     }
 }
 

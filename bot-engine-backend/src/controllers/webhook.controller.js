@@ -99,8 +99,8 @@ const processWebhookJob = async (body) => {
             }
 
             // --- SIMULAR ESCRIBIENDO ---
-            // No hacemos await para no bloquear el hilo, que se envíe en paralelo
-            sendTypingIndicator(phone_number_id, tenant.whatsapp_token, from, tenant.id).catch(err => console.error("Typing indicator error:", err));
+            // Enviamos status: 'read' que es el método soportado por Meta para encolar la interacción
+            sendTypingIndicator(phone_number_id, tenant.whatsapp_token, msgObj.id, tenant.id).catch(err => console.error("Typing indicator error:", err));
 
             // 6. Extracción de Contenido del Mensaje
             let user_message = await extractMessageContent(msgObj, tenant);
