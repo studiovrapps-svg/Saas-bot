@@ -8,20 +8,20 @@ module.exports = {
         COMPLETION_TOKENS_PER_MILLION: 0.30
     },
 
-    // NLP (Natural Language Processing) b·sico
+    // NLP (Natural Language Processing) b√°sico
     KEYWORDS: {
-        GREETINGS: ['hola', 'menu', 'men˙', 'inicio', 'buenas', 'buenos', 'saludos', 'ayuda', 'ola'],
+        GREETINGS: ['hola', 'menu', 'men√∫', 'inicio', 'buenas', 'buenos', 'saludos', 'ayuda', 'ola'],
         ESCAPE_FLOW: ['cancelar', 'menu', 'salir', 'volver', 'reiniciar'],
         HANDOFF_REQUEST: ['asesor', 'humano']
     },
 
     // Respuestas quemadas (Bot Copy)
     COPY: {
-        HANDOFF_INITIATED: "????? *Conectando con un asesor...*\n\nHe notificado a nuestro equipo. Un asesor humano leer· este chat y te responder· a la brevedad. (El bot se pausar· temporalmente).",
-        FALLBACK_MISUNDERSTOOD: "No te comprendÌ muy bien ??. Para ayudarte r·pido, por favor selecciona una de nuestras opciones:",
+        HANDOFF_INITIATED: "üßë‚Äçüíª *Conectando con un asesor...*\n\nHe notificado a nuestro equipo. Un asesor humano leer√° este chat y te responder√° a la brevedad. (El bot se pausar√° temporalmente).",
+        FALLBACK_MISUNDERSTOOD: "No te comprend√≠ muy bien üòÖ. Para ayudarte r√°pido, por favor selecciona una de nuestras opciones:",
         AUDIO_ERROR: "[Error transcribiendo audio]",
         IMAGE_ERROR: "[Error descargando imagen]",
-        STICKER_REJECTED: "°QuÈ buen sticker! ?? Pero por ahora soy un bot y solo puedo entender mensajes de texto o respuestas de los botones. Por favor usa texto para continuar.",
-        ORDER_SUCCESS: "??? *°Pedido registrado con Èxito!*"
+        STICKER_REJECTED: "¬°Qu√© buen sticker! üòÑ Pero por ahora soy un bot y solo puedo entender mensajes de texto o respuestas de los botones. Por favor usa texto para continuar.",
+        ORDER_SUCCESS: "üéâ *¬°Pedido registrado con √©xito!*"
     }
 };
