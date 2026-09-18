@@ -51,6 +51,7 @@ async function startQueue() {
     });
 
     // Tarea Programada (Cron) para Limpiar Carritos Abandonados
+    await boss.createQueue('cleanup-carts');
     await boss.schedule('cleanup-carts', '0 * * * *');
     await boss.work('cleanup-carts', async () => {
         try {
