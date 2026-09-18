@@ -37,3 +37,8 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 );
 CREATE TABLE IF NOT EXISTS templates (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, bot_tier INT DEFAULT 1, system_prompt TEXT, business_rules JSONB DEFAULT '[]'::jsonb, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS campaign_jobs (id SERIAL PRIMARY KEY, tenant_id INT REFERENCES tenants(id) ON DELETE CASCADE, campaign_name VARCHAR(255) NOT NULL, target_phones JSONB NOT NULL, status VARCHAR(50) DEFAULT 'pending', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+-- 4. Tabla de Bloqueos de Webhook (Anti-Duplicados / Idempotencia)
+CREATE TABLE IF NOT EXISTS webhook_locks (
+    meta_id VARCHAR(255) PRIMARY KEY,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

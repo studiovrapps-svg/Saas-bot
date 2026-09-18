@@ -1,5 +1,8 @@
+const { startQueue, boss } = require('./src/config/queue');
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
+const socketConfig = require('./src/config/socket');
 const cors = require('cors');
 
 const authRoutes = require('./src/routes/auth.routes');
@@ -42,6 +45,29 @@ app.use('/api/billing', billingRoutes);
 app.use('/webhook', webhookRoutes);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 SaaS Bot Engine REST Controller (MVC) corriendo en puerto ${PORT}`);
-});
+// Arranque secuencial: garantizar cola antes de aceptar tráfico
+(async () => {
+    try {
+        await startQueue();
+    } catch(e) {
+        console.error("Error crítico iniciando sistema de colas:", e);
+        process.exit(1); // Fail-Fast: Matar el proceso si la cola no levanta
+    }
+    
+        const server = http.createServer(app);
+    socketConfig.init(server); // Inicializar WebSockets
+
+    server.listen(PORT, () => {
+        console.log(`?? SaaS Bot Engine REST Controller (MVC) + WebSockets corriendo en puerto ${PORT}`);
+    });
+})();
+
+// Graceful Shutdown para pg-boss
+const shutdown = async () => {
+    console.log("Cerrando colas de pg-boss de forma segura...");
+    if (boss) await boss.stop({ graceful: true, timeout: 10000 });
+    process.exit(0);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+

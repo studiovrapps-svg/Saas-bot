@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const { uploadImage, deleteImage } = require('../services/aws.service');
+const ragService = require('../services/rag.service');
 
 const getProducts = async (req, res) => {
     try {
@@ -24,7 +25,15 @@ const createProduct = async (req, res) => {
             'INSERT INTO products (tenant_id, name, description, price, image_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
             [tenant_id, name, description, price, imageUrl]
         );
+        
+        // RAG Sync (Opcional, no bloquea el request)
+        try {
+            await ragService.upsertProductKnowledge(tenant_id, result.rows[0].id, name, description, validPrice);
+        } catch (ragErr) {
+            console.error("Error RAG sync on create:", ragErr);
+        }
         res.status(201).json({ message: `Producto guardado`, producto: result.rows[0] });
+    
     } catch (error) { res.status(500).json({ error: `Error interno` }); }
 };
 
@@ -59,7 +68,19 @@ const updateProduct = async (req, res) => {
             );
             if (uResult.rowCount === 0 && !isSuperAdmin) return res.status(403).json({ error: 'Unauthorized' });
         }
+        
+        // RAG Sync (Opcional, no bloquea el request)
+        try {
+            // Obtenemos el tenant_id real de la BD en lugar del body para evitar fallos si no se envia
+            const tResult = await pool.query('SELECT tenant_id FROM products WHERE id = $1', [id]);
+            if (tResult.rows.length > 0) {
+                await ragService.upsertProductKnowledge(tResult.rows[0].tenant_id, id, name, description, validPrice);
+            }
+        } catch (ragErr) {
+            console.error("Error RAG sync on update:", ragErr);
+        }
         res.json({ message: `Producto actualizado` });
+    
     } catch (error) { res.status(500).json({ error: `Error interno` }); }
 };
 
@@ -73,6 +94,14 @@ const deleteProduct = async (req, res) => {
         if (pResult.rows.length > 0) {
             await deleteImage(pResult.rows[0].image_url);
             await pool.query(`DELETE FROM products WHERE id = $1 ${tenantCondition}`, [id]);
+            // RAG Sync Delete
+            try {
+                const tId = isSuperAdmin ? req.body.tenant_id : req.user.tenant_id;
+                if (tId) await ragService.deleteProductKnowledge(tId, id);
+            } catch (ragErr) {
+                console.error("Error RAG sync on delete:", ragErr);
+            }
+    
             res.json({ message: `Producto eliminado` });
         } else {
             return res.status(403).json({ error: 'Unauthorized or not found' });

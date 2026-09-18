@@ -105,10 +105,12 @@ async function sendWhatsAppTemplate(phone_number_id, token, to, template_name, l
         const data = await response.json();
         if (data.error) await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'META_API', message: 'Error enviando plantilla', details: data.error });
         const wamid = data?.messages?.[0]?.id || null;
-        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'template', `[Campaña: ${template_name}]`, wamid);
+        if (tenant_id) await logMessage(tenant_id, to, 'outbound', 'template', `[Campa�a: ${template_name}]`, wamid);
+        return data; // Parche para pg-boss
     } catch (error) { 
         console.error(`Error enviando plantilla WhatsApp:`, error); 
-        await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'SYSTEM', message: 'Excepción en sendWhatsAppTemplate', details: { err: error.message } });
+        await logSystemEvent({ tenant_id, level: 'ERROR', event_type: 'SYSTEM', message: 'Excepci�n en sendWhatsAppTemplate', details: { err: error.message } });
+        throw error; // Parche para pg-boss (Reintentos)
     }
 }
 

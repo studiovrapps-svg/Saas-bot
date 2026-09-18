@@ -1,383 +1,360 @@
-const pool = require('../config/db');
+const socketConfig = require('../config/socket');
+const crypto = require('crypto');
 const { sendWhatsAppText, sendWhatsAppMenu, sendInteractiveButtons, logMessage, sendWhatsAppImage } = require('../services/whatsapp.service');
-const { sendWhatsAppAI, chatCache } = require('../services/ai.service');
+const { sendWhatsAppAI } = require('../services/ai.service');
+const { downloadWhatsAppMedia } = require('../services/whatsapp.service');
+const { uploadImage } = require('../services/aws.service');
+const { transcribeAudio } = require('../services/ai.service');
 
-const verifyWebhook = (req, res) => { console.log('GET WEBHOOK RECIBIDO!');
+// Repositories & Config
+const tenantRepo = require('../repositories/tenant.repository');
+const sessionRepo = require('../repositories/session.repository');
+const messageRepo = require('../repositories/message.repository');
+const orderRepo = require('../repositories/order.repository');
+const productRepo = require('../repositories/product.repository');
+const { KEYWORDS, COPY, HANDOFF_SILENCE_DURATION_MS } = require('../config/constants');
+
+const verifyWebhook = (req, res) => {
     if (req.query[`hub.mode`] === "subscribe" && req.query[`hub.verify_token`] === process.env.WHATSAPP_VERIFY_TOKEN) {
         res.status(200).send(req.query[`hub.challenge`]);
-    } else res.sendStatus(403);
+    } else {
+        res.sendStatus(403);
+    }
 };
 
 const processWebhook = (req, res) => {
+    // 1. Validar Firma Criptográfica de Meta
+    if (process.env.META_APP_SECRET) {
+        const signature = req.headers['x-hub-signature-256'];
+        if (!signature || !req.rawBody) {
+            console.error("Falta firma x-hub-signature-256 o cuerpo en la petición");
+            return res.sendStatus(401);
+        }
+        const expectedSignature = 'sha256=' + crypto.createHmac('sha256', process.env.META_APP_SECRET).update(req.rawBody).digest('hex');
+        const sigBuffer = Buffer.from(signature);
+        const expectedBuffer = Buffer.from(expectedSignature);
+        
+        if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+            console.error("Firma de Meta inválida. Posible ataque de Spoofing o Timing Attack.");
+            return res.sendStatus(401);
+        }
+    }
+
     res.sendStatus(200);
+
     setImmediate(async () => {
         try {
-            let body = req.body;
-        if (body.object && body.entry && body.entry[0].changes[0].value.statuses) {
-            // META DELIVERY RECEIPTS
-            const statusObj = body.entry[0].changes[0].value.statuses[0];
-            const meta_id = statusObj.id;
-            const status = statusObj.status; // sent, delivered, read
-            
-            await pool.query(
-                `UPDATE messages SET delivery_status = $1 WHERE meta_message_id = $2`,
-                [status, meta_id]
-            );
-            return;
-        }
-        
-        if (body.object && body.entry && body.entry[0].changes[0].value.messages) {
-            let phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
-            let from = body.entry[0].changes[0].value.messages[0].from;
-            let profile_name = body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || null;
-            
-            const tenantResult = await pool.query('SELECT * FROM tenants WHERE whatsapp_phone_id = $1', [phone_number_id]);
-            if (tenantResult.rows.length === 0) return;
-            
-            const tenant = tenantResult.rows[0];
-            if (!tenant.is_active) {
-                console.log(`🛑 Cliente ${tenant.name} está SUSPENDIDO. Ignorando mensajes.`);
-                return;
-            }
-            if (!tenant.whatsapp_token) return;
+            const body = req.body;
+            if (!body.object || !body.entry) return;
 
-            // Status validation happens later down with muted_until checking
-
-                          // Extraer el texto real que escribió el usuario (o el botón que presionó, o media)
-              let user_message = ``;
-              let msgObj = body.entry[0].changes[0].value.messages[0];
-              
-              if (msgObj.type === `text`) {
-                  user_message = msgObj.text?.body || '';
-              } else if (msgObj.type === `interactive`) {
-                  if (msgObj.interactive.type === `list_reply`) user_message = msgObj.interactive.list_reply.title;
-                  else if (msgObj.interactive.type === `button_reply`) user_message = msgObj.interactive.button_reply.title;
-              } else if (msgObj.type === `image`) {
-                  // Procesar imagen (Guardar permanente en AWS)
-                  const media_id = msgObj.image.id;
-                  const mime_type = msgObj.image.mime_type || 'image/jpeg';
-                  const ext = mime_type.split('/')[1] || 'jpg';
-                  
-                  const { downloadWhatsAppMedia } = require('../services/whatsapp.service');
-                  const { uploadImage } = require('../services/aws.service');
-                  
-                  const buffer = await downloadWhatsAppMedia(media_id, tenant.whatsapp_token);
-                    if (buffer) {
-                        const fakeFile = {
-                            originalname: `img_${Date.now()}.${ext}`,
-                            buffer: buffer,
-                            mimetype: mime_type
-                        };
-                        const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
-                        user_message = (msgObj.image.caption ? msgObj.image.caption + '\n' : '') + `[Imagen adjunta: ${s3Url}]`;
-                    } else {
-                      user_message = "[Error descargando imagen]";
-                  }
-              } else if (msgObj.type === `audio`) {
-                  const media_id = msgObj.audio.id;
-                  const { downloadWhatsAppMedia } = require('../services/whatsapp.service');
-                  const { transcribeAudio } = require('../services/ai.service');
-                  const buffer = await downloadWhatsAppMedia(media_id, tenant.whatsapp_token);
-                  if (buffer) {
-                      try {
-                          user_message = await transcribeAudio(buffer, tenant.id);
-                      } catch(e) {
-                          user_message = "[Error transcribiendo audio]";
-                      }
-              } else {
-                      user_message = "[Error descargando audio]";
-                  }
-              } else if (msgObj.type === 'sticker') {
-                  const media_id = msgObj.sticker.id;
-                  const { downloadWhatsAppMedia } = require('../services/whatsapp.service');
-                  const { uploadImage } = require('../services/aws.service');
-                  const buffer = await downloadWhatsAppMedia(media_id, tenant.whatsapp_token);
-                  if (buffer) {
-                      const ext = 'webp';
-                      const fakeFile = {
-                          originalname: `sticker_${Date.now()}.${ext}`,
-                          buffer: buffer,
-                          mimetype: 'image/webp'
-                      };
-                      const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
-                      user_message = `[Sticker: ${s3Url}]`;
-                  } else {
-                      user_message = "[Error descargando sticker]";
-                  }
-              } else {
-                  user_message = `[Multimedia o documento adjunto: ${msgObj.type}]`;
-              }
-            
-            // Log incoming message
-            await logMessage(tenant.id, from, 'inbound', msgObj.type, user_message || `media`, null, 'received', profile_name, 'customer');
-            
-            // GLOBAL MUTE CHECK (For human handoff in ANY tier)
-            
-            // --- Helper Functions for State (DB) ---
-            async function getSessionState(t_id, phone) {
-                const res = await pool.query('SELECT state_data FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2', [t_id, phone]);
-                if (res.rows.length > 0 && res.rows[0].state_data) return res.rows[0].state_data;
-                return {};
-            }
-            async function setSessionState(t_id, phone, newState) {
-                await pool.query(
-                    'INSERT INTO chat_sessions (tenant_id, user_phone, state_data) VALUES ($1, $2, $3) ON CONFLICT (tenant_id, user_phone) DO UPDATE SET state_data = $3',
-                    [t_id, phone, JSON.stringify(newState)]
-                );
-            }
-            async function delSessionState(t_id, phone) {
-                const state = await getSessionState(t_id, phone);
-                if (state.muted_until) {
-                    await setSessionState(t_id, phone, { muted_until: state.muted_until });
-                } else {
-                    await pool.query('UPDATE chat_sessions SET state_data = $3 WHERE tenant_id = $1 AND user_phone = $2', [t_id, phone, JSON.stringify({})]);
-                }
-            }
-
-            let state = await getSessionState(tenant.id, from);
-            let muteUntil = state.muted_until;
-            if (muteUntil && Date.now() < muteUntil) {
-                return; // Silent mode active
-            }
-
-            // --- PILAR 4 (GLOBAL): HANDOFF A HUMANO (Por texto) ---
-            if (msgObj.type === 'text' && user_message && (user_message.toLowerCase().includes('asesor') || user_message.toLowerCase().includes('humano')) && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
-                state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
-                await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status, state_data) VALUES ($1, $2, 'humano', $3) ON CONFLICT (tenant_id, user_phone) DO UPDATE SET status = 'humano', last_interaction = NOW(), state_data = jsonb_set(COALESCE(chat_sessions.state_data, \'{}\'), \'{muted_until}\', $4::jsonb)`, [tenant.id, from, JSON.stringify({ muted_until: state.muted_until }), state.muted_until.toString()]);
-                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `👩‍💻 *Conectando con un asesor...*\n\nHe notificado a nuestro equipo. Un asesor humano leerá este chat y te responderá a la brevedad. (El bot se pausará temporalmente).`, tenant.id);
-                return;
-            }
-
-            if (tenant.bot_tier === 1) {
-                // Manejo de estado de pedido (Opción 3 y fotos de producto)
-                
-                
-
-
-
-                // Helper para enviar menú principal interactivo
-                const sendMainMenu = async () => {
-                    let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
-                    let rows = [{ id: `btn_catalogo`, title: `🛍️ Ver productos` }];
-                    menus.forEach((m, idx) => {
-                        if (m.title && m.title.trim().length > 0) {
-                            rows.push({ id: `btn_faq_${idx}`, title: m.title.trim().substring(0, 24) });
-                        }
-                    });
-                    
-                    const finalRows = rows.slice(0, 10);
-                    let payload = {
-                        messaging_product: `whatsapp`,
-                        to: from,
-                        type: `interactive`,
-                        interactive: {
-                            type: `list`,
-                            header: { type: `text`, text: `Menú Principal` },
-                            body: { text: tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}. ¿Cómo podemos ayudarte hoy?` },
-                            action: {
-                                button: `Opciones`,
-                                sections: [{ title: `Opciones disponibles`, rows: finalRows }]
-                            }
-                        }
-                    };
-                    const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
-                        method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-                    });
-                    const metaResData = await metaRes.json();
-                    console.log("META RESPONSE:", JSON.stringify(metaResData, null, 2));
-                    await logMessage(tenant.id, from, 'outbound', 'interactive', 'Menú Principal enviado');
-                };
-
-                if (msgObj.type === 'location' && state.step === 'awaiting_address') { user_message = `📍 Lat: ${msgObj.location.latitude}, Long: ${msgObj.location.longitude}`; }
-                if (msgObj.type === 'sticker') { await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, '¡Qué buen sticker! 😄 Pero por ahora soy un bot y solo puedo entender mensajes de texto o respuestas de los botones. Por favor usa texto para continuar.', tenant.id); return; }
-                if (msgObj.type === `text` || msgObj.type === `image` || (msgObj.type === `audio` && user_message) || (msgObj.type === `location` && user_message)) {
-                    let text = user_message.toLowerCase();
-
-                    // Skip state destruction if in cart decision
-                    if (state.step === 'cart_decision') { if (['cancelar', 'menu', 'salir', 'volver', 'reiniciar'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona una opción para continuar tu compra o escribe *cancelar*:', [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id); return; }
-                      if (state.step === 'adding_more') { if (['cancelar', 'menu', 'salir', 'volver'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona un producto del catálogo, o escribe *cancelar*.', tenant.id); return; }
-
-                    // Handoff movido globalmente arriba
-                    // --- PILAR 1: MÁQUINA DE ESTADOS (CARRITO) ---
-                    if (state.step === 'awaiting_quantity') {
-                        if (['cancelar', 'menu', 'salir', 'volver'].some(k => user_message.toLowerCase().includes(k))) { await delSessionState(tenant.id, from); await sendMainMenu(); return; } 
-                        const parsedQty = parseInt(user_message.trim(), 10);
-                        if (isNaN(parsedQty) || parsedQty <= 0 || parsedQty.toString() !== user_message.trim() || parsedQty > 999) {
-                            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, ingresa una cantidad numérica entera válida (ejemplo: 1, 2, 3) o escribe *cancelar*.`, tenant.id);
-                            return;
-                        }
-                        let cart = state.cart || [];
-                        cart.push({ product_id: state.product_id || null, product: state.product, quantity: parsedQty, price: state.price || 0 });
-                        
-                        state.step = 'cart_decision'; state.cart = cart; await setSessionState(tenant.id, from, state);
-                        
-                        await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `🛒 *Producto añadido al carrito.*
-
-¿Deseas seguir comprando o finalizar tu pedido?`, [
-                            { id: `btn_add_more`, title: `🛍️ Seguir comprando` },
-                            { id: `btn_checkout`, title: `✅ Finalizar pedido` }], tenant.id);
-                        return;
-                    } 
-                    else if (state.step === 'awaiting_address') {
-                        if (['cancelar', 'menu', 'salir', 'volver'].some(k => text.includes(k))) { await delSessionState(tenant.id, from); await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Pedido cancelado. Volviendo al menú principal...', tenant.id); await sendMainMenu(); return; } if (user_message.trim().length < 5) {
-                            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, indícanos una dirección de entrega válida y detallada.`, tenant.id);
-                            return;
-                        }
-                        let cart = state.cart || [];
-                        if (cart.length === 0) { await delSessionState(tenant.id, from); await sendMainMenu(); return; }
-                        // Insert into orders FIRST
-                        await pool.query(
-                            `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address) VALUES ($1, $2, $3, $4)`,
-                            [tenant.id, from, JSON.stringify(cart), user_message]
-                        );
-                        
-                        let cartSummary = cart.map(item => `📦 ${item.quantity}x ${item.product}`).join('\n');
-                        let finalMsg = `🛍️ *¡Pedido registrado con éxito!*
-
-*Resumen de tu pedido:*
-${cartSummary}
-📍 Datos de entrega: ${user_message}
-
-Un asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
-                        
-                        await delSessionState(tenant.id, from); state = await getSessionState(tenant.id, from);
-                        
-                        // Pasar a humano
-                        state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
-                        const sessionResult = await pool.query(`SELECT id FROM chat_sessions WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
-                        if (sessionResult.rows.length > 0) {
-                            await pool.query(`UPDATE chat_sessions SET status = 'humano' WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
-                        } else {
-                            await pool.query(`INSERT INTO chat_sessions (tenant_id, user_phone, status) VALUES ($1, $2, 'humano')`, [tenant.id, from]);
-                        }
-                        return;
-                    }
-
-                    // --- PILAR 2: GATILLOS DE PALABRAS CLAVE ---
-                    let rules = [];
+            // --- 2. META DELIVERY RECEIPTS ---
+            if (body.entry[0].changes[0].value.statuses) {
+                const statusObj = body.entry[0].changes[0].value.statuses[0];
+                const tenantId = await messageRepo.updateDeliveryStatus(statusObj.id, statusObj.status);
+                if (tenantId) {
                     try {
-                        rules = Array.isArray(tenant.business_rules) ? tenant.business_rules : JSON.parse(tenant.business_rules || '[]');
-                    } catch(e) {}
-                    
-                    let matchedRule = rules.find(r => r.q && r.q.length >= 3 && text.includes(r.q.toLowerCase()));
-                    if (matchedRule) {
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, matchedRule.a, tenant.id);
-                        
-                        if (matchedRule.action === 'catalog') {
-                            await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
-                        } else if (matchedRule.action === 'transfer') {
-                            state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
-                            await pool.query(`UPDATE chat_sessions SET status = 'humano', last_interaction = NOW() WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
-                        } else {
-                            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `¿Puedo ayudarte con algo más?`, [
-                                { id: `btn_main_menu`, title: `🏠 Menú Principal` }], tenant.id);
-                        }
+                        socketConfig.getIO().to(`tenant_${tenantId}`).emit('message_status_update', { meta_id: statusObj.id, status: statusObj.status });
+                    } catch (error) {
+                        console.warn("⚠️ Advertencia: No se pudo emitir status update a Socket.IO.", error.message);
+                    }
+                }
+                return; // Early return para receipts
+            }
+            
+            // --- 3. MENSAJES ENTRANTES ---
+            if (!body.entry[0].changes[0].value.messages) return;
+
+            const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
+            const from = body.entry[0].changes[0].value.messages[0].from;
+            const profile_name = body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || null;
+            const msgObj = body.entry[0].changes[0].value.messages[0];
+
+            // 4. Validar Tenant
+            const tenant = await tenantRepo.getTenantByPhoneId(phone_number_id);
+            if (!tenant || !tenant.is_active || !tenant.whatsapp_token) return;
+
+            // 5. PROTECCIÓN ANTI-DUPLICADOS (Idempotencia)
+            if (msgObj.id) {
+                try {
+                    await messageRepo.acquireIdempotencyLock(msgObj.id);
+                } catch (error) {
+                    if (error.code === '23505') {
+                        console.log(`[Idempotencia] 🛡️ Webhook duplicado de Meta bloqueado. wamid: ${msgObj.id}`);
                         return;
                     }
-
-                    // --- PILAR 3: RUTAS DE ESCAPE (FALLBACK ANTI-FRUSTRACIÓN) ---
-                    await delSessionState(tenant.id, from); state = await getSessionState(tenant.id, from);
-                    
-                    const isGreeting = ['hola', 'menu', 'menú', 'inicio', 'buenas', 'buenos', 'saludos', 'ayuda', 'ola'].some(g => text.includes(g));
-                    
-                    if (!isGreeting) {
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `No te comprendí muy bien 😅. Para ayudarte rápido, por favor selecciona una de nuestras opciones:`, tenant.id);
-                    }
-                    
-                    await sendMainMenu();
-                    return;
+                    throw error; 
                 }
-
-                if (msgObj.type === `interactive`) {
-                    let btnId = ``;
-                    let btnTitle = ``;
-                    if (msgObj.interactive.type === `list_reply`) {
-                        btnId = msgObj.interactive.list_reply.id;
-                        btnTitle = msgObj.interactive.list_reply.title;
-                    } else if (msgObj.interactive.type === `button_reply`) {
-                        btnId = msgObj.interactive.button_reply.id;
-                        btnTitle = msgObj.interactive.button_reply.title;
-                    }
-
-                    if (btnId === `btn_main_menu` || btnId === `btn_catalogo`) {
-                        let preservedCart = state.cart;
-                        await delSessionState(tenant.id, from); state = await getSessionState(tenant.id, from);
-                        if (preservedCart) { state.cart = preservedCart; await setSessionState(tenant.id, from, state); }
-                        
-                        if (btnId === `btn_catalogo`) {
-                            await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
-                        } else {
-                            await sendMainMenu();
-                        }
-                    } else if (btnId === `btn_add_more`) {
-                        state.step = 'adding_more'; await setSessionState(tenant.id, from, state);
-                        await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
-                    } else if (btnId === `btn_checkout`) {
-                        state.step = 'awaiting_address'; await setSessionState(tenant.id, from, state);
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `🛍️ Por favor, indícanos tu **Nombre Completo y Dirección exacta** para poder procesar y enviar tu pedido:`, tenant.id);
-                    } else if (btnId.startsWith(`btn_faq_`)) {
-                        let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
-                        let idx = parseInt(btnId.replace(`btn_faq_`, ``));
-                        if (menus[idx]) {
-                            if (menus[idx].image_url) {
-                                await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, menus[idx].image_url, (menus[idx].response || '').substring(0, 1024), tenant.id);
-                            } else {
-                                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, menus[idx].response, tenant.id);
-                            }
-                            
-                            if (menus[idx].action === 'catalog') {
-                                await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
-                            } else if (menus[idx].action === 'transfer') {
-                                state.muted_until = Date.now() + 2 * 60 * 60 * 1000; await setSessionState(tenant.id, from, state);
-                                await pool.query(`UPDATE chat_sessions SET status = 'humano', last_interaction = NOW() WHERE tenant_id = $1 AND user_phone = $2`, [tenant.id, from]);
-                            } else {
-                                // Siempre mandar el escape despuǸs de un FAQ normal
-                                await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `¿Qué más deseas hacer?`, [
-                                    { id: `btn_main_menu`, title: `🏠 Menú Principal` }], tenant.id);
-                            }
-                        }
-                    } else if (btnId.startsWith(`prod_`)) {
-                        let prodId = btnId.replace(`prod_`, ``);
-                        let productoElegido = btnTitle;
-                        
-                        try {
-                            const pRes = await pool.query('SELECT name, image_url, price FROM products WHERE id = $1', [prodId]);
-                            if (pRes.rows.length > 0) {
-                                state.price = pRes.rows[0].price;
-                                productoElegido = pRes.rows[0].name;
-                                if (pRes.rows[0].image_url) {
-                                    await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, pRes.rows[0].image_url, `Seleccionaste: *${productoElegido}*`, tenant.id);
-                                }
-                            }
-                        } catch(e) { console.error(`Error buscando info de producto`, e); }
-
-                        state.step = 'awaiting_quantity'; state.product = productoElegido; state.product_id = prodId; await setSessionState(tenant.id, from, state);
-                        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Excelente elección! 📦\n\n¿Cuántas unidades deseas llevar? (Responde con un número)`, tenant.id);
-
-                    } else {
-                        // Fallback fallback
-                        await sendMainMenu();
-                    }
-                }
-            } else if (tenant.bot_tier >= 2) {
-                await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name, tenant.system_prompt, user_message);
             }
+
+            // 6. Extracción de Contenido del Mensaje
+            let user_message = await extractMessageContent(msgObj, tenant);
+
+            // Log de entrada
+            await logMessage(tenant.id, from, 'inbound', msgObj.type, user_message || `media`, msgObj.id, 'received', profile_name, 'customer');
+            
+            // Evento WebSocket
+            try {
+                socketConfig.getIO().to(`tenant_${tenant.id}`).emit('new_message', { phone: from, message: user_message, direction: 'inbound', isAudio: msgObj.type === 'audio' });
+            } catch(error) {
+                console.warn("⚠️ Advertencia: No se pudo emitir a Socket.IO. El mensaje fue procesado en DB.", error.message);
+            }
+
+            // 7. Gestión de Estado de Sesión (Máquina de Estados)
+            let { state, status: sessionStatus } = await sessionRepo.getSessionState(tenant.id, from);
+            if (state.muted_until && Date.now() < state.muted_until) {
+                return; // Silent mode activo (Controlado por humano)
+            }
+
+            // 8. HANDOFF A HUMANO GLOBAL (Tier 1 y 2/3)
+            const isHandoffReq = msgObj.type === 'text' && user_message && KEYWORDS.HANDOFF_REQUEST.some(k => user_message.toLowerCase().includes(k));
+            if (isHandoffReq && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
+                const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
+                await sessionRepo.setHumanStatus(tenant.id, from, mutedTimestamp);
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, COPY.HANDOFF_INITIATED, tenant.id);
+                return;
+            }
+
+            // 9. ENRUTAMIENTO POR TIER
+            if (tenant.bot_tier === 1) {
+                await handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state);
+            } else if (tenant.bot_tier >= 2) {
+                if (user_message) {
+                    await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, user_message, tenant.id);
+                }
+            }
+
+        } catch (error) {
+            console.error("Error crítico en processWebhook:", error);
         }
-        return; 
-    } catch (error) { 
-        console.error("WEBHOOK CRASH DETAILED:", error);
-    }
     });
 };
 
+// --- HELPER FUNCTIONS (Refactorizadas fuera del controlador gigante) ---
 
-// ==========================================
+async function extractMessageContent(msgObj, tenant) {
+    let user_message = '';
+    if (msgObj.type === 'text') {
+        user_message = msgObj.text?.body || '';
+    } else if (msgObj.type === 'interactive') {
+        if (msgObj.interactive.type === 'list_reply') user_message = msgObj.interactive.list_reply.title;
+        else if (msgObj.interactive.type === 'button_reply') user_message = msgObj.interactive.button_reply.title;
+    } else if (msgObj.type === 'image') {
+        const ext = (msgObj.image.mime_type || 'image/jpeg').split('/')[1] || 'jpg';
+        const buffer = await downloadWhatsAppMedia(msgObj.image.id, tenant.whatsapp_token);
+        if (buffer) {
+            const fakeFile = { originalname: `img_${Date.now()}.${ext}`, buffer, mimetype: msgObj.image.mime_type || 'image/jpeg' };
+            const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
+            user_message = (msgObj.image.caption ? msgObj.image.caption + '\n' : '') + `[Imagen adjunta: ${s3Url}]`;
+        } else {
+            user_message = COPY.IMAGE_ERROR;
+        }
+    } else if (msgObj.type === 'audio') {
+        const buffer = await downloadWhatsAppMedia(msgObj.audio.id, tenant.whatsapp_token);
+        if (buffer) {
+            user_message = await transcribeAudio(buffer, tenant.id);
+        } else {
+            user_message = COPY.AUDIO_ERROR;
+        }
+    } else if (msgObj.type === 'sticker') {
+        user_message = COPY.STICKER_REJECTED;
+    } else if (msgObj.type === 'location') {
+        user_message = `📍 Lat: ${msgObj.location.latitude}, Long: ${msgObj.location.longitude}`;
+    } else {
+        user_message = `[Multimedia adjunto: ${msgObj.type}]`;
+    }
+    return user_message;
+}
 
-// ==========================================
-// ENDPOINTS DE LIVE CHAT
-// ==========================================
+// Lógica de carrito Tier 1 abstraída
+async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state) {
+    let text = user_message.toLowerCase();
 
+    // Enviar menú principal Helper
+    const sendMainMenu = async () => {
+        let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+        let rows = [{ id: 'btn_catalogo', title: '🛍️ Ver productos' }];
+        menus.forEach((m, idx) => {
+            if (m.title && m.title.trim().length > 0) rows.push({ id: `btn_faq_${idx}`, title: m.title.trim().substring(0, 24) });
+        });
+        
+        let payload = {
+            messaging_product: 'whatsapp', to: from, type: 'interactive',
+            interactive: {
+                type: 'list', header: { type: 'text', text: 'Menú Principal' },
+                body: { text: tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}. ¿Cómo podemos ayudarte hoy?` },
+                action: { button: 'Opciones', sections: [{ title: 'Opciones disponibles', rows: rows.slice(0, 10) }] }
+            }
+        };
+        const metaRes = await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+            method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        if (!metaRes.ok) console.error("Error enviando Menú", await metaRes.text());
+        await logMessage(tenant.id, from, 'outbound', 'interactive', 'Menú Principal enviado');
+    };
 
+    if (msgObj.type === 'sticker') { 
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, COPY.STICKER_REJECTED, tenant.id); 
+        return; 
+    }
+
+    if (msgObj.type === 'text' || msgObj.type === 'image' || msgObj.type === 'audio' || msgObj.type === 'location') {
+        
+        const isEscape = KEYWORDS.ESCAPE_FLOW.some(k => text.includes(k));
+
+        if (state.step === 'cart_decision' || state.step === 'adding_more' || state.step === 'awaiting_quantity' || state.step === 'awaiting_name' || state.step === 'awaiting_address') {
+            if (isEscape) {
+                await sessionRepo.clearSessionState(tenant.id, from);
+                await sendMainMenu();
+                return;
+            }
+        }
+
+        if (state.step === 'cart_decision') {
+            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona una opción para continuar tu compra o escribe *cancelar*:', [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id);
+            return;
+        }
+
+        if (state.step === 'adding_more') {
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor selecciona un producto del catálogo, o escribe *cancelar*.', tenant.id);
+            return;
+        }
+
+        if (state.step === 'awaiting_quantity') {
+            let qty = parseInt(text.trim());
+            if (isNaN(qty) || qty <= 0) {
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Por favor, escribe un número válido para la cantidad (ejemplo: 2), o escribe *cancelar*.`, tenant.id);
+                return;
+            }
+            let cart = state.cart || [];
+            cart.push({ product: state.pending_product.title, price: state.pending_product.price, quantity: qty });
+            state.cart = cart;
+            state.step = 'cart_decision';
+            delete state.pending_product;
+            await sessionRepo.setSessionState(tenant.id, from, state);
+            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, `Se agregó ${qty}x ${cart[cart.length-1].product} a tu pedido. ¿Qué deseas hacer ahora?`, [{id: 'btn_add_more', title: 'Seguir comprando'}, {id: 'btn_checkout', title: 'Finalizar pedido'}], tenant.id);
+            return;
+        }
+
+        if (state.step === 'awaiting_name') {
+            if (user_message.trim().length < 3) {
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Por favor, escribe tu nombre completo (mínimo 3 caracteres), o escribe *cancelar*.', tenant.id);
+                return;
+            }
+            state.customer_name = user_message.trim();
+            state.step = 'awaiting_address';
+            await sessionRepo.setSessionState(tenant.id, from, state);
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `Gracias, *${state.customer_name}*. Ahora escribe tu dirección completa de entrega:`, tenant.id);
+            return;
+        }
+
+        if (state.step === 'awaiting_address') {
+            let cart = state.cart || [];
+            let customerName = state.customer_name || 'Sin nombre';
+            let deliveryInfo = `Nombre: ${customerName}\nDirección: ${user_message}`;
+            await orderRepo.createOrder(tenant.id, from, cart, deliveryInfo);
+            
+            let cartSummary = cart.map(item => `🛍️ ${item.quantity}x ${item.product}`).join('\n');
+            let finalMsg = `${COPY.ORDER_SUCCESS}\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n👤 Nombre: ${customerName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
+            
+            await sessionRepo.clearSessionState(tenant.id, from);
+            const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
+            await sessionRepo.setHumanStatus(tenant.id, from, mutedTimestamp);
+            return;
+        }
+
+        // Gatillos por reglas de negocio Tier 1
+        const rules = await tenantRepo.getBusinessRules(tenant.id);
+        let matchedRule = rules.find(r => r.q && r.q.length >= 3 && text.includes(r.q.toLowerCase()));
+        if (matchedRule) {
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, matchedRule.a, tenant.id);
+            return;
+        }
+
+        // Default: Fallback o Menú
+        await sessionRepo.clearSessionState(tenant.id, from);
+        const isGreeting = KEYWORDS.GREETINGS.some(g => text.includes(g));
+        if (!isGreeting) {
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, COPY.FALLBACK_MISUNDERSTOOD, tenant.id);
+        }
+        await sendMainMenu();
+        return;
+    }
+
+    if (msgObj.type === 'interactive') {
+        let btnId = '';
+        if (msgObj.interactive.type === 'list_reply') btnId = msgObj.interactive.list_reply.id;
+        else if (msgObj.interactive.type === 'button_reply') btnId = msgObj.interactive.button_reply.id;
+
+        if (btnId === 'btn_main_menu' || btnId === 'btn_catalogo') {
+            let preservedCart = state.cart;
+            await sessionRepo.clearSessionState(tenant.id, from);
+            let newState = await sessionRepo.getSessionState(tenant.id, from);
+            if (preservedCart) { newState.state.cart = preservedCart; await sessionRepo.setSessionState(tenant.id, from, newState.state); }
+            
+            if (btnId === 'btn_catalogo') {
+                await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
+            } else {
+                await sendMainMenu();
+            }
+            return;
+        }
+
+        if (btnId === 'btn_add_more') {
+            state.step = 'adding_more'; await sessionRepo.setSessionState(tenant.id, from, state);
+            await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
+            return;
+        }
+        if (btnId === 'btn_checkout') {
+            state.step = 'awaiting_name'; await sessionRepo.setSessionState(tenant.id, from, state);
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Para finalizar tu pedido, por favor escribe tu *Nombre Completo*:', tenant.id);
+            return;
+        }
+
+        if (btnId.startsWith('btn_faq_')) {
+            let idx = parseInt(btnId.replace('btn_faq_', ''));
+            let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+            if (menus[idx]) {
+                let responseText = menus[idx].content || menus[idx].response;
+                if (menus[idx].action === 'catalog') {
+                    // Send a brief message, then the catalog directly instead of falling into a trap
+                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
+                    await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
+                } else if (menus[idx].action === 'transfer') {
+                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
+                    const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
+                    await sessionRepo.setHumanStatus(tenant.id, from, mutedTimestamp);
+                } else {
+                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
+                    await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
+                }
+            }
+            return;
+        }
+
+        if (btnId.startsWith('prod_')) {
+            let prodId = parseInt(btnId.replace('prod_', ''));
+            const products = await productRepo.findProductsByIds(tenant.id, [prodId]);
+            const pRes = products[0];
+            
+            if (pRes) {
+                let caption = `*${pRes.name}*\nPrecio: Q${pRes.price}`;
+                if (pRes.image_url) {
+                    await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, pRes.image_url, caption, tenant.id);
+                } else {
+                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, caption, tenant.id);
+                }
+                
+                state.step = 'awaiting_quantity';
+                state.pending_product = { id: prodId, title: pRes.name, price: pRes.price };
+                await sessionRepo.setSessionState(tenant.id, from, state);
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¿Cuántas unidades de *${pRes.name}* deseas pedir? (Escribe solo el número)`, tenant.id);
+            } else {
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Lo siento, este producto ya no está disponible.', tenant.id);
+            }
+            return;
+        }
+    }
+}
 
 module.exports = { verifyWebhook, processWebhook };

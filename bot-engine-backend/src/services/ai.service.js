@@ -1,126 +1,99 @@
-const pool = require('../config/db');
 const Groq = require('groq-sdk');
-const NodeCache = require('node-cache');
-const { sendWhatsAppText, logMessage } = require('./whatsapp.service'); // Note: we'll have to watch out for circular deps
-
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const chatCache = new NodeCache({ stdTTL: 900 });
+const { searchRelevantContext } = require('./rag.service');
+const { sendWhatsAppText, sendWhatsAppImage, logMessage } = require('./whatsapp.service');
+const { toFile } = require('groq-sdk/uploads');
 
-async function sendWhatsAppAI(phone_number_id, token, to, tenant_id, tenant_name, system_prompt, user_message) {
+// Repositories & Config
+const tenantRepo = require('../repositories/tenant.repository');
+const orderRepo = require('../repositories/order.repository');
+const sessionRepo = require('../repositories/session.repository');
+const productRepo = require('../repositories/product.repository');
+const messageRepo = require('../repositories/message.repository');
+const { AI_PRICING, COPY, HANDOFF_SILENCE_DURATION_MS } = require('../config/constants');
+
+const chatCache = new Map();
+
+async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
     try {
-        const prodResult = await pool.query('SELECT * FROM products WHERE tenant_id = $1 AND is_active = true', [tenant_id]);
-        const tenantResult = await pool.query('SELECT business_rules FROM tenants WHERE id = $1', [tenant_id]);
-        const business_rules = tenantResult.rows[0]?.business_rules || ``;
+        const rules = await tenantRepo.getBusinessRules(tenant_id);
+        const rulesText = rules.length > 0 
+            ? "REGLAS DE NEGOCIO ESTRICTAS:\n" + rules.map(r => `- Si el usuario pregunta "${r.q}", RESPONDE EXACTAMENTE: "${r.a}"`).join('\n') 
+            : "";
         
-        let catalogoTexto = `CATÁLOGO DE PRODUCTOS:\n`;
-        if (prodResult.rows.length === 0) catalogoTexto += `No hay productos.\n`;
-        prodResult.rows.forEach(p => catalogoTexto += `- ${p.name}: $${p.price} (${p.description}) (ID_FOTO=${p.id})\n`);
+        let sysPrompt = `Eres un asistente de ventas profesional. Responde de forma concisa y amigable. Si no sabes algo, no inventes. Puedes usar emojis. Nunca ofrezcas productos que no estén en el catálogo provisto.\n${rulesText}`;
 
-        let faqTexto = ``;
-        try {
-            if (business_rules) {
-                const faqs = JSON.parse(business_rules);
-                if (Array.isArray(faqs)) {
-                    faqs.forEach(f => faqTexto += `PREGUNTA: ${f.q}\nRESPUESTA: ${f.a}\n\n`);
-                } else faqTexto = business_rules;
-            }
-        } catch(e) { faqTexto = business_rules; }
-
-        const basePrompt = `Eres el asistente virtual oficial de ${tenant_name}.
-
-INSTRUCCIONES CRÍTICAS (DEBES OBEDECERLAS ESTRICTAMENTE):
-1. RESPUESTAS CORTAS: Responde SIEMPRE en 1 o 2 párrafos cortos. NUNCA generes respuestas largas, listas infinitas ni te repitas.
-2. FORMATO LIMPIO: Usa emojis y formato de WhatsApp para negritas usando UN SOLO asterisco (ejemplo: *texto*). ESTÁ PROHIBIDO usar doble asterisco (**) o Markdown estándar. NUNCA dejes líneas en blanco (doble enter) entre cada producto de una lista, mantenlos pegados en líneas consecutivas.
-3. HERRAMIENTA DE PEDIDOS: NUNCA ejecutes la función 'create_order' a menos que el cliente ya te haya dicho EXACTAMENTE qué productos quiere, las cantidades y su DIRECCIÓN DE ENTREGA completa. Si falta algún dato, PREGÚNTALO primero.
-4. CATÁLOGO REAL: Usa el catálogo provisto abajo. NUNCA inventes productos ni precios.
-5. IMÁGENES: Para enviar una foto de un producto, escribe exactamente [IMG_X] (donde X es el ID_FOTO). NO repitas este tag múltiples veces sin sentido.
-6. ASESOR: Si el cliente pide un humano, usa la función 'transfer_to_human'.
-
-CATÁLOGO DE PRODUCTOS:
-${catalogoTexto}
-
-REGLAS DEL NEGOCIO (Dadas por el dueño):
-${faqTexto}
-
-${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
-
-        const historyRes = await pool.query(
-            `SELECT * FROM (SELECT direction, content, created_at FROM messages WHERE tenant_id = $1 AND customer_phone = $2 ORDER BY created_at DESC LIMIT 10) sub ORDER BY created_at ASC`,
-            [tenant_id, to]
-        );
-        
-        let messages = [ { role: `system`, content: basePrompt } ];
-        for (let row of historyRes.rows) {
-            messages.push({
-                role: row.direction === 'inbound' ? 'user' : 'assistant',
-                content: row.content || ''
+        const ragContext = await searchRelevantContext(tenant_id, text);
+        let contextMsg = "";
+        if (ragContext && ragContext.length > 0) {
+            contextMsg = "INFORMACIÓN RECUPERADA DE LA BASE DE CONOCIMIENTOS (CATÁLOGO/DOCS):\n";
+            ragContext.forEach(doc => {
+                contextMsg += `- [ID: ${doc.metadata?.product_id || 'N/A'}] ${doc.content}\n`;
             });
+            contextMsg += "\nUsa esta información para responder al usuario. Si el usuario pide comprar un producto que está en la base de conocimientos, ofrece usar la herramienta create_order indicando los nombres de los productos y la cantidad. Si la información no es suficiente, informa amablemente.\n";
+            contextMsg += "INSTRUCCIÓN ESPECIAL PARA IMÁGENES: Si la información contiene el ID de un producto, y es útil para la venta, incluye en tu respuesta exactamente este texto: [IMG_<ID_DEL_PRODUCTO>] donde <ID_DEL_PRODUCTO> es el número de ID. El sistema lo reemplazará por la foto real.";
         }
-        
-        if (messages.length === 1 || messages[messages.length-1].content !== user_message) {
-            messages.push({ role: `user`, content: user_message });
-        }
+
+        const cacheKey = `chat_${tenant_id}_${to}`;
+        if (!chatCache.has(cacheKey)) { chatCache.set(cacheKey, []); }
+        const history = chatCache.get(cacheKey);
+
+        history.push({ role: "user", content: contextMsg ? `Contexto:\n${contextMsg}\n\nMensaje del usuario: ${text}` : text });
+        if (history.length > 8) history.shift();
+
+        const messages = [{ role: "system", content: sysPrompt }, ...history];
 
         const tools = [
             {
-                type: `function`,
+                type: "function",
                 function: {
-                    name: `create_order`,
-                    description: `Crea un pedido oficial en el sistema. DEBES buscar en el catálogo el nombre exacto y el PRECIO (price) de cada producto.`,
+                    name: "create_order",
+                    description: "Registra un pedido cuando el usuario confirma los productos y las cantidades que desea comprar.",
                     parameters: {
-                        type: `object`,
+                        type: "object",
                         properties: {
-                            items: { 
-                                type: `array`, 
-                                items: { 
-                                    type: `object`, 
-                                    properties: { 
-                                        product: { type: `string` }, 
-                                        quantity: { type: `integer` },
-                                        price: { type: `number`, description: `El precio unitario del producto, extraído del catálogo` }
+                            items: {
+                                type: "array",
+                                items: {
+                                    type: "object",
+                                    properties: {
+                                        product: { type: "string", description: "Nombre del producto exacto" },
+                                        quantity: { type: "integer", description: "Cantidad a comprar" }
                                     },
-                                    required: [`product`, `quantity`, `price`]
-                                } 
+                                    required: ["product", "quantity"]
+                                }
                             },
-                            delivery_address: { type: `string` }
+                            delivery_address: { type: "string", description: "Dirección completa de entrega proporcionada por el usuario" }
                         },
-                        required: [`items`, `delivery_address`]
+                        required: ["items", "delivery_address"]
                     }
                 }
             },
             {
-                type: `function`,
+                type: "function",
                 function: {
-                    name: `transfer_to_human`,
-                    description: `Silencia el bot y notifica a un humano.`,
-                    parameters: { type: `object`, properties: { reason: { type: `string` } } }
+                    name: "transfer_to_human",
+                    description: "Transfiere la conversación a un humano si el usuario está enojado, pide hablar con un asesor, o hace una pregunta compleja que no puedes responder.",
+                    parameters: { type: "object", properties: {} }
                 }
             }
         ];
 
         const completion = await groq.chat.completions.create({
             messages: messages,
-            model: "openai/gpt-oss-20b",
-            temperature: 0.2,
-            max_tokens: 2048,
+            model: "llama-3.1-70b-versatile",
+            temperature: 0.3,
+            max_tokens: 500,
             tools: tools,
             tool_choice: "auto"
         });
 
-        try {
-            if (completion.usage) {
-                const pTokens = completion.usage.prompt_tokens || 0;
-                const cTokens = completion.usage.completion_tokens || 0;
-                // Groq gpt-oss-20b pricing estimation: ~$0.075/1M prompt, ~$0.30/1M completion
-                const cost = (pTokens / 1000000 * 0.075) + (cTokens / 1000000 * 0.30);
-                await pool.query(
-                    'INSERT INTO usage_logs (tenant_id, prompt_tokens, completion_tokens, cost_usd) VALUES ($1, $2, $3, $4)',
-                    [tenant_id, pTokens, cTokens, cost]
-                );
-            }
-        } catch(e) { console.error("Error logging tokens", e); }
+        // Billing
+        const pTokens = completion.usage?.prompt_tokens || 0;
+        const cTokens = completion.usage?.completion_tokens || 0;
+        const costUsd = (pTokens / 1000000 * AI_PRICING.PROMPT_TOKENS_PER_MILLION) + (cTokens / 1000000 * AI_PRICING.COMPLETION_TOKENS_PER_MILLION);
+        await messageRepo.logUsage(tenant_id, pTokens, cTokens, costUsd);
 
-        console.log('GROQ RESPONSE RAW:', JSON.stringify(completion, null, 2));
         const responseMessage = completion.choices[0].message;
         let finalResponseText = responseMessage.content || "";
 
@@ -130,25 +103,26 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
                     try {
                         const args = JSON.parse(toolCall.function.arguments);
                         if (!args.items || args.items.length === 0) {
-                            finalResponseText += `\n\n⚠️ Necesito saber exactamente qué productos deseas comprar. Por favor, indícame los nombres y cantidades.`;
+                            finalResponseText += `\n\n📝 Necesito saber exactamente qué productos deseas comprar. Por favor, indícame los nombres y cantidades.`;
                         } else if (!args.delivery_address || args.delivery_address.trim().length < 4) {
-                            finalResponseText += `\n\n⚠️ Para registrar tu pedido, por favor bríndame tu dirección de entrega completa.`;
+                            finalResponseText += `\n\n📍 Para registrar tu pedido, por favor bríndame tu dirección de entrega completa.`;
                         } else {
-                            // Validate items against DB safely
                             let validatedItems = [];
                             if (Array.isArray(args.items)) {
-                                for (let item of args.items) {
-                                    if (!item.product || typeof item.product !== 'string') continue;
-                                    const qty = parseInt(item.quantity, 10);
-                                    if (isNaN(qty) || qty <= 0 || qty > 999) continue;
+                                const validItemsInput = args.items.filter(i => i.product && typeof i.product === 'string' && i.product.trim().length > 0 && !isNaN(parseInt(i.quantity, 10)));
+                                if (validItemsInput.length > 0) {
+                                    const searchTerms = validItemsInput.map(i => `%${i.product.trim()}%`);
+                                    const productsFound = await productRepo.findProductsByName(tenant_id, searchTerms);
                                     
-                                    const itemProdLow = item.product.toLowerCase().trim();
-                                      const dbProd = prodResult.rows.find(p => {
-                                          const dbLow = p.name.toLowerCase().trim();
-                                          return dbLow === itemProdLow || dbLow.includes(itemProdLow) || itemProdLow.includes(dbLow);
-                                      });
-                                    if (dbProd) {
-                                        validatedItems.push({ product: dbProd.name, quantity: qty, price: dbProd.price });
+                                    for (let item of validItemsInput) {
+                                        const qty = parseInt(item.quantity, 10);
+                                        if (qty <= 0 || qty > 999) continue;
+                                        const itemLow = item.product.toLowerCase().trim();
+                                        const dbProd = productsFound.find(p => p.name.toLowerCase().includes(itemLow));
+                                        
+                                        if (dbProd) {
+                                            validatedItems.push({ product: dbProd.name, quantity: qty, price: dbProd.price });
+                                        }
                                     }
                                 }
                             }
@@ -156,63 +130,54 @@ ${system_prompt || `Sé amable y guía al usuario a realizar una compra.`}`;
                                 finalResponseText += `\n\nLo siento, no pude validar los productos o cantidades en tu carrito. Por favor, intenta de nuevo.`;
                             } else {
                                 let cartText = validatedItems.map(i => `${i.quantity}x ${i.product}`).join(', ');
-                                await pool.query(
-                                    `INSERT INTO orders (tenant_id, customer_phone, items, delivery_address, status) VALUES ($1, $2, $3, $4, 'pendiente')`,
-                                    [tenant_id, to, JSON.stringify(validatedItems), args.delivery_address]
-                                );
-                                finalResponseText += `\n\n🛍️ ¡Pedido registrado con éxito! Resumen: ${cartText}. Dirección: ${args.delivery_address}.`;
+                                await orderRepo.createOrder(tenant_id, to, validatedItems, args.delivery_address);
+                                finalResponseText += `\n\n${COPY.ORDER_SUCCESS} Resumen: ${cartText}. Dirección: ${args.delivery_address}.`;
                             }
                         }
                     } catch(e) { console.error("Error parsing create_order args", e); }
                 } else if (toolCall.function.name === 'transfer_to_human') {
-                    
-                    // Update state in DB and notify human
-                    await pool.query(
-                        `INSERT INTO chat_sessions (tenant_id, user_phone, state_data, status) VALUES ($1, $2, $3, 'humano') ON CONFLICT (tenant_id, user_phone) DO UPDATE SET status = 'humano', last_interaction = NOW(), state_data = jsonb_set(COALESCE(chat_sessions.state_data, '{}'), '{muted_until}', $4::jsonb)`,
-                        [tenant_id, to, JSON.stringify({ muted_until: Date.now() + (2 * 60 * 60 * 1000) }), (Date.now() + (2 * 60 * 60 * 1000)).toString()]
-                    );
-        
-                    finalResponseText += `\n\n👨‍💻 Te estoy transfiriendo con uno de nuestros asesores humanos. Por favor, espera un momento.`;
+                    const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
+                    await sessionRepo.setHumanStatus(tenant_id, to, mutedTimestamp);
+                    finalResponseText += `\n\n${COPY.HANDOFF_INITIATED}`;
                 }
             }
         }
 
         if (finalResponseText) {
-            // Process images
             const regex = /\[IMG_(\d+)\]/g;
             let textToSend = finalResponseText;
             let match;
             const imagesToSend = [];
             while ((match = regex.exec(finalResponseText)) !== null) {
-                imagesToSend.push(match[1]);
+                imagesToSend.push(parseInt(match[1]));
                 textToSend = textToSend.replace(match[0], '');
             }
-            if (textToSend.trim().length > 0) {
-                await sendWhatsAppText(phone_number_id, token, to, textToSend.trim(), tenant_id);
+            
+            textToSend = textToSend.trim();
+            if (textToSend.length > 0) {
+                await sendWhatsAppText(phone_number_id, token, to, textToSend, tenant_id);
+                history.push({ role: "assistant", content: textToSend });
             }
 
-            for (let prod_id of imagesToSend) {
+            if (imagesToSend.length > 0) {
                 try {
-                    const p = prodResult.rows.find(x => x.id == prod_id);
-                    if (p && p.image_url) {
-                        await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
-                            method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ messaging_product: `whatsapp`, to: to, type: `image`, image: { link: p.image_url } })
-                        });
-                        await logMessage(tenant_id, to, 'outbound', 'image', `[Imagen: ${p.image_url}]\n${p.name}`);
-                    }
-                } catch(e){}
+                    const productsFound = await productRepo.findProductsByIds(tenant_id, imagesToSend);
+                    await Promise.all(productsFound.map(async (p) => {
+                        if (p && p.image_url) {
+                            try {
+                                const caption = `[Imagen: ${p.image_url}]\n${p.name}`;
+                                await sendWhatsAppImage(phone_number_id, token, to, p.image_url, caption, tenant_id);
+                            } catch(err) { console.error("Error enviando imagen", err); }
+                        }
+                    }));
+                } catch(e) { console.error("Error en batch imágenes", e); }
             }
         }
-
     } catch (error) {
-    console.error(`Error AI:`, error);
-    const { sendWhatsAppText } = require('./whatsapp.service');
-    await sendWhatsAppText(phone_number_id, token, to, "Lo siento, estoy experimentando dificultades técnicas en este momento. Por favor intenta de nuevo más tarde.", tenant_id);
+        console.error(`Error AI:`, error);
+        await sendWhatsAppText(phone_number_id, token, to, "Lo siento, estoy experimentando dificultades técnicas en este momento. Por favor intenta de nuevo más tarde.", tenant_id);
+    }
 }
-}
-
-const { toFile } = require('groq-sdk/uploads');
 
 async function transcribeAudio(buffer, tenant_id = null) {
     try {
@@ -220,21 +185,17 @@ async function transcribeAudio(buffer, tenant_id = null) {
         const completion = await groq.audio.transcriptions.create({
             file: fileObj,
             model: "whisper-large-v3-turbo",
-            language: "es", // Forcing Spanish for better regional accuracy
+            language: "es",
             response_format: "verbose_json"
         });
         if (tenant_id && completion.duration) {
-            // Whisper API cost ~$0.006 / minute = $0.0001 per second
-            const cost = completion.duration * 0.0001;
-            await pool.query(
-                'INSERT INTO usage_logs (tenant_id, cost_usd) VALUES ($1, $2)',
-                [tenant_id, cost]
-            );
+            const costUsd = completion.duration * 0.0001; // Whisper API cost ~$0.006 / minute = $0.0001 per second
+            await messageRepo.logUsage(tenant_id, 0, 0, costUsd);
         }
         return completion.text;
     } catch (e) {
         console.error("Error en Whisper:", e);
-        return "[Error transcribiendo audio]";
+        return COPY.AUDIO_ERROR;
     }
 }
 
