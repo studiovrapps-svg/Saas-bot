@@ -206,13 +206,21 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
         
         const isEscape = KEYWORDS.ESCAPE_FLOW.some(k => text.includes(k));
 
-        if (state.step === 'cart_decision' || state.step === 'adding_more' || state.step === 'awaiting_quantity' || state.step === 'awaiting_address' || state.step === 'awaiting_initial_name') {
+        if (state.step === 'cart_decision' || state.step === 'adding_more' || state.step === 'awaiting_quantity' || state.step === 'awaiting_address' || state.step === 'awaiting_initial_name' || state.step === 'awaiting_transfer_info') {
             if (isEscape) {
                 await sessionRepo.clearSessionState(tenant.id, from);
                 if (customer_name) await sendMainMenu();
                 else await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¡Hola! Bienvenido a ${tenant.name}. Para brindarte una mejor atención, ¿me podrías decir tu nombre?`, tenant.id);
                 return;
             }
+        }
+
+        if (state.step === 'awaiting_transfer_info') {
+            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "¡Recibido! Un asesor se pondrá en contacto contigo lo antes posible.", tenant.id);
+            await sessionRepo.clearSessionState(tenant.id, from);
+            const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
+            await sessionRepo.setHumanStatus(tenant.id, from, mutedTimestamp);
+            return;
         }
 
         if (state.step === 'awaiting_initial_name') {
@@ -363,8 +371,8 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
                     await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
                 } else if (menus[idx].action === 'transfer') {
                     await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
-                    const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
-                    await sessionRepo.setHumanStatus(tenant.id, from, mutedTimestamp);
+                    state.step = 'awaiting_transfer_info';
+                    await sessionRepo.setSessionState(tenant.id, from, state);
                 } else {
                     await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
                     await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
