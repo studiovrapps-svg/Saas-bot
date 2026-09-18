@@ -21,34 +21,39 @@ async function startQueue() {
 
     // En pg-boss v10: es necesario crear las colas antes de procesar o enviar
     await boss.createQueue('send-campaign-message');
-    await boss.work('send-campaign-message', { batchSize: 1 }, async ([ job ]) => {
-        const { tenant_id, phone, template_name } = job.data;
-        
-        try {
-            const tenantRes = await pool.query('SELECT whatsapp_token, whatsapp_phone_id FROM tenants WHERE id = $1', [tenant_id]);
-            if (tenantRes.rows.length > 0) {
-                const tenant = tenantRes.rows[0];
-                const result = await sendWhatsAppTemplate(tenant.whatsapp_phone_id, tenant.whatsapp_token, phone, template_name, 'es', tenant_id);
-                // Si Meta devolvió un error en la respuesta, forzar el throw para reintentar
-                if (result && result.error) {
-                    throw new Error(`Meta API error: ${JSON.stringify(result.error)}`);
+    await boss.work('send-campaign-message', { batchSize: 1 }, async (jobs) => {
+        const jobArray = Array.isArray(jobs) ? jobs : [jobs];
+        for (const job of jobArray) {
+            const { tenant_id, phone, template_name } = job.data;
+            
+            try {
+                const tenantRes = await pool.query('SELECT whatsapp_token, whatsapp_phone_id FROM tenants WHERE id = $1', [tenant_id]);
+                if (tenantRes.rows.length > 0) {
+                    const tenant = tenantRes.rows[0];
+                    const result = await sendWhatsAppTemplate(tenant.whatsapp_phone_id, tenant.whatsapp_token, phone, template_name, 'es', tenant_id);
+                    if (result && result.error) {
+                        throw new Error(`Meta API error: ${JSON.stringify(result.error)}`);
+                    }
                 }
+            } catch (e) {
+                console.error(`Error enviando campaña a ${phone}:`, e.message || e);
+                throw e; // Lanza error para que reintente este batch de tamaño 1
             }
-        } catch (e) {
-            console.error(`Error enviando campaña a ${phone}:`, e.message || e);
-            throw e; // Permite que pg-boss marque el job como retry/failed
         }
     });
 
     // Worker para procesar Webhooks de Meta (Anti-Timeout)
     await boss.createQueue('process-webhook');
-    await boss.work('process-webhook', async (job) => {
+    await boss.work('process-webhook', async (jobs) => {
         const { processWebhookJob } = require('../controllers/webhook.controller');
-        try {
-            await processWebhookJob(job.data.body);
-        } catch (e) {
-            console.error("Error processing webhook job:", e);
-            throw e;
+        const jobArray = Array.isArray(jobs) ? jobs : [jobs];
+        for (const job of jobArray) {
+            try {
+                await processWebhookJob(job.data.body);
+            } catch (e) {
+                console.error("Error processing webhook job:", e);
+                // Si lanzamos un error, pg-boss puede reintentar todo el batch
+            }
         }
     });
 
