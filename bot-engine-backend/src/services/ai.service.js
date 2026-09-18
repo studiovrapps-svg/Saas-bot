@@ -140,7 +140,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                                     return `🛍️ ${item.quantity}x ${item.product}`;
                                 }).join('\n');
                                 const { sendTelegramAlert, escapeHTML } = require('./telegram.service');
-                                sendTelegramAlert(tenant_id, `🚨 <b>NUEVO PEDIDO (Tier 2 - IA)</b> 🚨\n\n<b>Teléfono:</b> ${to}\n<b>Dirección:</b> ${args.delivery_address}\n\n<b>Productos:</b>\n${cartSummaryAlert}\n\n💰 <b>Total:</b> Q${total.toFixed(2)}`).catch(e => console.error(e));
+                                sendTelegramAlert(tenant_id, `🚨 <b>NUEVO PEDIDO (Tier 2 - IA)</b> 🚨\n\n<b>Teléfono:</b> ${to}\n<b>Dirección:</b> ${escapeHTML(args.delivery_address)}\n\n<b>Productos:</b>\n${escapeHTML(cartSummaryAlert)}\n\n💰 <b>Total:</b> Q${total.toFixed(2)}`).catch(e => console.error(e));
                                 // ----------------------
                             }
                         }

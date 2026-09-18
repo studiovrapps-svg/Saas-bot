@@ -19,7 +19,10 @@ const processTelegramWebhook = async (req, res) => {
                     if (!isNaN(tenantId)) {
                         const check = await pool.query('SELECT telegram_chat_id, whatsapp_phone_id FROM tenants WHERE id = $1', [tenantId]);
                         if (check.rows.length > 0) {
-                            const expectedPin = check.rows[0].whatsapp_phone_id ? check.rows[0].whatsapp_phone_id.substring(0, 5) : '00000';
+                            if (!check.rows[0].whatsapp_phone_id) {
+                                return res.sendStatus(200); // Fail silencioso: Tenant no tiene WhatsApp configurado
+                            }
+                            const expectedPin = check.rows[0].whatsapp_phone_id.substring(0, 5);
                             if (pin !== expectedPin) {
                                 return res.sendStatus(200); // Fail silencioso para evitar fuerza bruta
                             }
