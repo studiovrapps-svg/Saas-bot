@@ -92,7 +92,7 @@ const processWebhookJob = async (body) => {
                         console.warn("⚠️ Advertencia: No se pudo emitir status update a Socket.IO.", error.message);
                     }
                 }
-                return; // Early return para receipts
+                // Eliminado: return early para no ignorar mensajes si vienen en lote con statuses
             }
             
             // --- 3. MENSAJES ENTRANTES ---
