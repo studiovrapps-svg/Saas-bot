@@ -1,5 +1,4 @@
 const pool = require('../config/db');
-const { sendTelegramAlert } = require('../services/telegram.service');
 const fetch = require('node-fetch');
 
 const processTelegramWebhook = async (req, res) => {
@@ -20,50 +19,50 @@ const processTelegramWebhook = async (req, res) => {
                         const check = await pool.query('SELECT telegram_chat_id, whatsapp_phone_id FROM tenants WHERE id = $1', [tenantId]);
                         if (check.rows.length > 0) {
                             if (!check.rows[0].whatsapp_phone_id) {
-                                return res.sendStatus(200); // Fail silencioso: Tenant no tiene WhatsApp configurado
+                                return res.sendStatus(200);
                             }
                             const expectedPin = check.rows[0].whatsapp_phone_id.substring(0, 5);
                             if (pin !== expectedPin) {
-                                return res.sendStatus(200); // Fail silencioso para evitar fuerza bruta
+                                return res.sendStatus(200);
                             }
 
                             const existingChat = check.rows[0].telegram_chat_id;
                             
                             if (existingChat && existingChat !== chatId) {
-                                await fetch(https://api.telegram.org/bot + process.env.TELEGRAM_BOT_TOKEN + /sendMessage, {
+                                await fetch('https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({
                                         chat_id: chatId,
-                                        text: ❌ Error: Esta tienda ya está conectada a otro número de Telegram. Usa /desconectar desde la cuenta original primero.
+                                        text: '❌ Error: Esta tienda ya está conectada a otro número de Telegram. Usa /desconectar desde la cuenta original primero.'
                                     })
                                 });
                                 return res.sendStatus(200);
                             }
                         }
 
-                        await pool.query('UPDATE tenants SET telegram_chat_id =  WHERE id = ', [chatId, tenantId]);
+                        await pool.query('UPDATE tenants SET telegram_chat_id = $1 WHERE id = $2', [chatId, tenantId]);
                         
-                        await fetch(https://api.telegram.org/bot + process.env.TELEGRAM_BOT_TOKEN + /sendMessage, {
+                        await fetch('https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 chat_id: chatId,
-                                text: ✅ <b>¡Listo!</b>\n\nEste chat ha sido enlazado exitosamente a la tienda (Tenant ID: ).\n\nA partir de ahora, recibirás alertas de ventas y leads aquí.,
+                                text: '✅ <b>¡Listo!</b>\n\nEste chat ha sido enlazado exitosamente a la tienda (Tenant ID: ' + tenantId + ').\n\nA partir de ahora, recibirás alertas de ventas y leads aquí.',
                                 parse_mode: 'HTML'
                             })
                         });
                     }
                 }
             } else if (text.startsWith('/desconectar')) {
-                const result = await pool.query('UPDATE tenants SET telegram_chat_id = NULL WHERE telegram_chat_id =  RETURNING id', [chatId]);
+                const result = await pool.query('UPDATE tenants SET telegram_chat_id = NULL WHERE telegram_chat_id = $1 RETURNING id', [chatId]);
                 if (result.rowCount > 0) {
-                    await fetch(https://api.telegram.org/bot + process.env.TELEGRAM_BOT_TOKEN + /sendMessage, {
+                    await fetch('https://api.telegram.org/bot' + process.env.TELEGRAM_BOT_TOKEN + '/sendMessage', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             chat_id: chatId,
-                            text: 🔌 Desconectado exitosamente de la tienda.
+                            text: '🔌 Desconectado exitosamente de la tienda.'
                         })
                     });
                 }
