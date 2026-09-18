@@ -51,7 +51,14 @@ async function setWebhook(url) {
     }
 }
 
+
+
+function escapeHTML(text) {
+    if (!text) return '';
+    return text.toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 module.exports = {
+    escapeHTML,
     sendTelegramAlert,
     setWebhook
 };

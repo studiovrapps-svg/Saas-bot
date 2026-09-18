@@ -1,4 +1,4 @@
-﻿const pool = require('../config/db');
+const pool = require('../config/db');
 const { sendTelegramAlert } = require('../services/telegram.service');
 const fetch = require('node-fetch');
 
@@ -12,12 +12,18 @@ const processTelegramWebhook = async (req, res) => {
 
             if (text.startsWith('/conectar')) {
                 const parts = text.split(' ');
-                if (parts.length === 2) {
+                if (parts.length === 3) {
                     const tenantId = parseInt(parts[1]);
+                    const pin = parts[2];
                     
                     if (!isNaN(tenantId)) {
-                        const check = await pool.query('SELECT telegram_chat_id FROM tenants WHERE id = ', [tenantId]);
+                        const check = await pool.query('SELECT telegram_chat_id, whatsapp_phone_id FROM tenants WHERE id = $1', [tenantId]);
                         if (check.rows.length > 0) {
+                            const expectedPin = check.rows[0].whatsapp_phone_id ? check.rows[0].whatsapp_phone_id.substring(0, 5) : '00000';
+                            if (pin !== expectedPin) {
+                                return res.sendStatus(200); // Fail silencioso para evitar fuerza bruta
+                            }
+
                             const existingChat = check.rows[0].telegram_chat_id;
                             
                             if (existingChat && existingChat !== chatId) {

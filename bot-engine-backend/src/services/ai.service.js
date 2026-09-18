@@ -139,7 +139,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                                     total += (item.price * item.quantity);
                                     return `🛍️ ${item.quantity}x ${item.product}`;
                                 }).join('\n');
-                                const { sendTelegramAlert } = require('./telegram.service');
+                                const { sendTelegramAlert, escapeHTML } = require('./telegram.service');
                                 sendTelegramAlert(tenant_id, `🚨 <b>NUEVO PEDIDO (Tier 2 - IA)</b> 🚨\n\n<b>Teléfono:</b> ${to}\n<b>Dirección:</b> ${args.delivery_address}\n\n<b>Productos:</b>\n${cartSummaryAlert}\n\n💰 <b>Total:</b> Q${total.toFixed(2)}`).catch(e => console.error(e));
                                 // ----------------------
                             }
@@ -151,7 +151,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                     finalResponseText += `\n\n${COPY.HANDOFF_INITIATED}`;
                     
                     // --- TELEGRAM ALERT ---
-                    const { sendTelegramAlert } = require('./telegram.service');
+                    const { sendTelegramAlert, escapeHTML } = require('./telegram.service');
                     sendTelegramAlert(tenant_id, `⚠️ <b>NUEVO LEAD / ASISTENCIA</b> ⚠️\n\n<b>Teléfono:</b> ${to}\n\nUn cliente ha solicitado atención humana. El bot se ha pausado. Revisa WhatsApp para atenderlo.`).catch(e => console.error(e));
                     // ----------------------
                 }

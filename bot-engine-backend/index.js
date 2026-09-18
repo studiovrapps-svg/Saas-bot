@@ -60,6 +60,9 @@ const PORT = process.env.PORT || 3000;
     socketConfig.init(server); // Inicializar WebSockets
 
     server.listen(PORT, () => {
+        if (process.env.BACKEND_URL) {
+            require('./src/services/telegram.service').setWebhook(process.env.BACKEND_URL + '/api/telegram/webhook');
+        }
         console.log(`?? SaaS Bot Engine REST Controller (MVC) + WebSockets corriendo en puerto ${PORT}`);
     });
 })();
