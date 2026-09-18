@@ -38,6 +38,28 @@ async function startQueue() {
             throw e; // Permite que pg-boss marque el job como retry/failed
         }
     });
+
+    // Worker para procesar Webhooks de Meta (Anti-Timeout)
+    await boss.work('process-webhook', { batchSize: 5 }, async ([ job ]) => {
+        const { processWebhookJob } = require('../controllers/webhook.controller');
+        try {
+            await processWebhookJob(job.data.body);
+        } catch (e) {
+            console.error("Error processing webhook job:", e);
+            throw e;
+        }
+    });
+
+    // Tarea Programada (Cron) para Limpiar Carritos Abandonados
+    await boss.schedule('cleanup-carts', '0 * * * *');
+    await boss.work('cleanup-carts', async () => {
+        try {
+            const res = await pool.query(`UPDATE chat_sessions SET state_data = '{}'::jsonb WHERE last_interaction < NOW() - INTERVAL '24 hours' AND state_data != '{}'::jsonb`);
+            if (res.rowCount > 0) console.log(`🧹 Limpieza Automática: ${res.rowCount} carritos/sesiones abandonadas eliminadas.`);
+        } catch (e) {
+            console.error("Error limpiando carritos:", e);
+        }
+    });
 }
 
 module.exports = {

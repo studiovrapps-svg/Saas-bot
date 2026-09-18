@@ -40,12 +40,24 @@ const processWebhook = (req, res) => {
         }
     }
 
-    res.sendStatus(200);
-
-    setImmediate(async () => {
         try {
-            const body = req.body;
-            if (!body.object || !body.entry) return;
+        const { boss } = require('../config/queue');
+        if (boss) {
+            await boss.send('process-webhook', { body: req.body });
+        } else {
+            setImmediate(() => module.exports.processWebhookJob(req.body));
+        }
+    } catch (e) {
+        console.error("Error enqueuing webhook:", e);
+        setImmediate(() => module.exports.processWebhookJob(req.body));
+    }
+    res.sendStatus(200);
+};
+
+const processWebhookJob = async (body) => {
+    try {
+        if (!body.object || !body.entry) return;
+
 
             // --- 2. META DELIVERY RECEIPTS ---
             if (body.entry[0].changes[0].value.statuses) {
@@ -124,9 +136,8 @@ const processWebhook = (req, res) => {
             }
 
         } catch (error) {
-            console.error("Error crítico en processWebhook:", error);
-        }
-    });
+        console.error("Error crítico en processWebhookJob:", error);
+    }
 };
 
 // --- HELPER FUNCTIONS (Refactorizadas fuera del controlador gigante) ---
@@ -406,4 +417,4 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
     }
 }
 
-module.exports = { verifyWebhook, processWebhook };
+module.exports = { verifyWebhook, processWebhook, processWebhookJob };
