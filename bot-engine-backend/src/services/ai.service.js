@@ -225,6 +225,9 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id, custo
                             const { sessionRepo } = require('../repositories/session.repository');
                             await sessionRepo.setCustomerName(tenant_id, to, args.name.trim());
                             console.log("Customer name registered via AI:", args.name);
+                            if (!finalResponseText || finalResponseText.trim().length === 0) {
+                                finalResponseText = `¡Mucho gusto, ${args.name.trim().split(' ')[0]}! ¿En qué te puedo ayudar hoy?`;
+                            }
                         }
                     } catch(e) { console.error("Error registering customer name", e); }
                 } else if (toolCall.function.name === 'transfer_to_human') {
