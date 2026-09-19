@@ -184,7 +184,13 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
         const costUsd = (pTokens / 1000000 * AI_PRICING.PROMPT_TOKENS_PER_MILLION) + (cTokens / 1000000 * AI_PRICING.COMPLETION_TOKENS_PER_MILLION);
         await messageRepo.logUsage(tenant_id, pTokens, cTokens, costUsd);
 
-        const responseMessage = completion.choices[0].message;
+        
+        // Remove register_customer_name if we already have the name
+        if (customer_name) {
+            const idx = tools.findIndex(t => t.function.name === 'register_customer_name');
+            if (idx !== -1) tools.splice(idx, 1);
+        }
+const responseMessage = completion.choices[0].message;
         let finalResponseText = responseMessage.content || "";
 
         if (responseMessage.tool_calls) {
