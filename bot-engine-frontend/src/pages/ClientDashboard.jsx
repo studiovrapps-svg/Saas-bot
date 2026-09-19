@@ -456,7 +456,7 @@ function ClientDashboard() {
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="p-6 border-b border-gray-100">
-          <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-10 w-auto object-contain" />
+          <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain -ml-3 -mt-2 -mb-2" />
         </div>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
           <div onClick={() => { setActiveTab('dashboard'); setShowMobileMenu(false); }} className={`${activeTab === 'dashboard' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
