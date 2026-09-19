@@ -21,7 +21,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id, custo
 
         const rules = await tenantRepo.getBusinessRules(tenant_id);
         const rulesText = rules.length > 0 
-            ? "\n\nREGLAS DE NEGOCIO ESTRICTAS:\n" + rules.map((r, i) => `- Si el usuario pregunta "${r.q}", RESPONDE EXACTAMENTE: "${r.a}${r.image_url ? `\n\n[FAQ_IMG_${i}]` : ''}"`).join('\n') 
+            ? "\n\nREGLAS DE NEGOCIO ESTRICTAS:\n" + rules.map((r, i) => `- TEMA: ${r.q}\n  Si el cliente pregunta por algo relacionado con esto, usa ESTA respuesta: "${r.a}"`).join('\n') 
             : "";
         
                 // --- CONSTRUCCIÓN DEL CEREBRO UNIVERSAL TIER 2 (OPTIMIZADO PARA 20B) ---
@@ -129,14 +129,16 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
                 parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { product: { type: "string" }, quantity: { type: "integer" } } } }, delivery_address: { type: "string" } } }
             }
         });
-        tools.push({
-            type: "function",
-            function: {
-                name: "transfer_to_human",
-                description: "PROHIBIDO usar esta herramienta para preguntas sobre productos, precios, distribuidores o cualquier tema que puedas resolver tú mismo con la información disponible. SOLO úsala si el cliente dice EXPLÍCITAMENTE frases como 'quiero hablar con un humano', 'pásame con un agente' o 'necesito hablar con una persona real'. Preguntas como '¿cómo ser distribuidor?' NO son motivo de transferencia.",
-                parameters: { type: "object", properties: {} }
-            }
-        });
+        if (text.match(/humano|asesor|agente|persona real|contacto|representante/i)) {
+            tools.push({
+                type: "function",
+                function: {
+                    name: "transfer_to_human",
+                    description: "Transfiere la conversación a un operador humano. Úsala SOLAMENTE porque el cliente te lo está pidiendo explícitamente en este mensaje.",
+                    parameters: { type: "object", properties: {} }
+                }
+            });
+        }
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 12000); // 12 segundos máximo
