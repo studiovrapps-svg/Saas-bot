@@ -186,6 +186,9 @@ function ClientDashboard() {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [faqs, setFaqs] = useState([{ q: '', a: '' }]);
   const [tier1Greeting, setTier1Greeting] = useState("");
+  const [businessVertical, setBusinessVertical] = useState("ecommerce");
+  const [currency, setCurrency] = useState("Q");
+  const [checkoutMessage, setCheckoutMessage] = useState("");
   const [tier1Menu, setTier1Menu] = useState([]);
   const [savingPrompt, setSavingPrompt] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, type: null, index: null });
@@ -230,6 +233,9 @@ function ClientDashboard() {
           setFaqs([{ q: 'Información', a: dataT?.business_rules || '' }]);
       }
       setTier1Greeting(dataT?.tier1_greeting || "");
+      setBusinessVertical(dataT?.business_vertical || "ecommerce");
+      setCurrency(dataT?.currency || "Q");
+      setCheckoutMessage(dataT?.checkout_message || "");
       setTier1Menu(dataT?.tier1_menu || []);
     } catch (error) { console.error(error); }
   };
@@ -240,7 +246,7 @@ function ClientDashboard() {
           const validFaqs = faqs.filter(f => f.q.trim() || f.a.trim());
           await fetch(`${API_URL}/tenant/${tenantId}/config`, {
               method: 'PUT', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ system_prompt: systemPrompt, business_rules: JSON.stringify(validFaqs), tier1_greeting: tier1Greeting, tier1_menu: tier1Menu })
+              body: JSON.stringify({ system_prompt: systemPrompt, business_rules: JSON.stringify(validFaqs), tier1_greeting: tier1Greeting, tier1_menu: tier1Menu, business_vertical: businessVertical, currency: currency, checkout_message: checkoutMessage })
           });
           alert("Configuración de IA guardada.");
       } catch(err) { console.error(err); }
@@ -475,7 +481,7 @@ function ClientDashboard() {
 
           <div onClick={() => { setActiveTab('productos'); setShowMobileMenu(false); }} className={`${activeTab === 'productos' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
-            <span className="font-semibold text-sm">Productos</span>
+            <span className="font-semibold text-sm">{businessVertical === 'clinic' ? 'Servicios' : (businessVertical === 'lead_gen' ? 'Catálogo' : 'Productos')}</span>
           </div>
 
           {tenantInfo?.features?.campaigns && (
@@ -1376,6 +1382,35 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
               {activeTab === 'configuracion' && (
                 <div className="max-w-4xl mx-auto mt-8">
                   <h2 className="text-3xl font-extrabold text-gray-900 mb-6">Configuración</h2>
+
+<div className="bg-white/80 p-6 rounded-2xl shadow-sm border border-gray-100 mb-6 relative overflow-hidden backdrop-blur-sm">
+    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
+    <h2 className="text-xl font-bold text-gray-800 mb-3 flex items-center gap-2">🏢 Tipo de Negocio y Formato</h2>
+    
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Vertical de Negocio</label>
+            <select value={businessVertical} onChange={e => setBusinessVertical(e.target.value)} className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white">
+                <option value="ecommerce">Tienda / E-commerce (Carrito de compras)</option>
+                <option value="clinic">Clínica / Servicios (Agendar Citas)</option>
+                <option value="lead_gen">Generación de Leads (Recopilar Datos)</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">Define el comportamiento principal del bot en Tier 1.</p>
+        </div>
+        <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Moneda Local</label>
+            <input type="text" value={currency} onChange={e => setCurrency(e.target.value)} className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white" placeholder="Ej: Q, $, MXN" />
+            <p className="text-xs text-gray-500 mt-1">Símbolo usado en el catálogo y precios.</p>
+        </div>
+    </div>
+    
+    <div className="mt-4">
+        <label className="block text-sm font-bold text-gray-700 mb-1">Mensaje de Finalización (Checkout / Despedida)</label>
+        <textarea value={checkoutMessage} onChange={e => setCheckoutMessage(e.target.value)} className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white resize-none" rows="2" placeholder="Ej: Un asesor se contactará para coordinar el pago..."></textarea>
+        <p className="text-xs text-gray-500 mt-1">Este texto se envía al finalizar un pedido, agendar cita o recolectar un lead.</p>
+    </div>
+</div>
+
                   
                   <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-8 items-center">
                     <div className="flex-1">
