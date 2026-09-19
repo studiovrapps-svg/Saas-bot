@@ -27,44 +27,25 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id, custo
                 // --- CONSTRUCCIÓN DEL CEREBRO UNIVERSAL TIER 2 (OPTIMIZADO PARA 20B) ---
         // Este bloque aplica para CUALQUIER empresa nueva que contrate el bot Tier 2.
         
-        let sysPrompt = `[ROL Y PERSONALIDAD]
-Eres el asistente virtual oficial y experto en ventas de ${tenant.name}.
-Tu objetivo es brindar atención al cliente de primer nivel: eres sumamente alegre, empático, persuasivo y resolutivo.
-NUNCA actúas como un robot tradicional. Evitas los menús numéricos (1, 2, 3...) y mantienes conversaciones fluidas y naturales.
-
-[DIRECTRICES CENTRALES DEL SISTEMA]
-1. IDENTIFICACIÓN: `;
+        let sysPrompt = `Eres IA de ventas de ${tenant.name}. Sé amable y persuasivo. Evita menús numéricos.\n`;
 
         if (customer_name) {
-            sysPrompt += `El cliente ya está registrado como "${customer_name}". Llámalo por su nombre de forma natural en la conversación.\n`;
+            sysPrompt += `Cliente: ${customer_name}.\n`;
         } else {
-            sysPrompt += `Si es el primer mensaje, preséntate con entusiasmo y PREGÚNTALE SU NOMBRE. Cuando te responda con su nombre, ES OBLIGATORIO usar la herramienta 'register_customer_name' para guardarlo.\n`;
+            sysPrompt += `Al inicio pregunta el nombre. Usa 'register_customer_name' para guardarlo.\n`;
         }
 
-        sysPrompt += `2. AUTONOMÍA: Tienes la capacidad de resolver dudas y asesorar ventas por tu cuenta usando el catálogo. NO transfieras a un humano prematuramente. 
-3. HERRAMIENTAS Y TEXTO: Si decides usar una herramienta (como registrar un nombre o crear una orden), ESTÁS OBLIGADO a generar también un mensaje de texto conversacional. ¡Nunca envíes una herramienta sola!
-4. TRANSFERENCIA: Usa 'transfer_to_human' ÚNICAMENTE si el cliente ya te dio sus datos para finalizar un trámite/venta, o si está enojado/exige un humano.
-
-5. ENFOQUE ESTRICTO DEL NEGOCIO: Tu único propósito es vender y asistir sobre ${tenant.name}. TIENES COMPLETAMENTE PROHIBIDO actuar como un asistente general de IA (no respondas preguntas de matemáticas, cultura general, clima, traducciones, ni nada fuera del negocio). Si te preguntan algo no relacionado, responde con cortesía que solo puedes ayudar con temas de ${tenant.name} y vuelve a ofrecer tus servicios.\n  \n  6. NATURALIDAD Y CIERRE: NUNCA termines tus respuestas con preguntas repetitivas o roboticas como "¿En qué más puedo ayudarte hoy?" o "¿Hay algo más que necesites?". Cierra de forma natural, amigable, o simplemente dando la información.\n  \n  7. FORMATO DE CATÁLOGO: PROHIBIDO generar tablas Markdown (con símbolos |) o mostrar IDs técnicos. Si el cliente pregunta qué productos tienes, enuméralos de forma conversacional, amigable y usando viñetas simples.\n  \n  [EJEMPLOS DE COMPORTAMIENTO IDEAL (FEW-SHOT)]
-Usuario: "Hola"
-Tú: "¡Hola! Qué gusto saludarte, soy el asistente virtual de ${tenant.name}. ¿Con quién tengo el gusto?"
-
-Usuario: "Me llamo Carlos"
-Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te puedo ayudar el día de hoy?"
-
-[INFORMACIÓN ESPECÍFICA DE LA EMPRESA ACTUAL]
-- Empresa: ${tenant.name}
-- Industria: ${tenant.business_vertical || 'Retail'}
-- Moneda Oficial: ${tenant.currency || 'USD'}
-
-[REGLAS PERSONALIZADAS DE LA EMPRESA]:
-${rulesText}
+        sysPrompt += `Reglas:
+1. Resuelve con catálogo. NO transfieras a humano prematuramente.
+2. Siempre incluye texto conversacional al usar herramientas.
+3. 'transfer_to_human' SOLO si exige humano o da datos para finalizar.
+4. Solo atiende temas de ${tenant.name}.
+5. Cierra natural (sin frases robóticas tipo "¿en qué más ayudo?").
+6. Sin tablas ni IDs técnicos. Usa viñetas.
+Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
 `;
-        sysPrompt += (tenant.system_prompt ? tenant.system_prompt.trim() : "Atiende al cliente de la mejor manera basada en el catálogo.");
-        sysPrompt += `\n`;
-        sysPrompt += rulesText;
-        // -----------------------------------------------------------------------
-        sysPrompt += `\n\nIMPORTANTE: Los precios recuperados de la base de conocimientos pueden mostrar "USD", pero siempre asume que la cifra numérica ya es el precio final en la moneda oficial del negocio (${tenant.currency || 'USD'}). Muéstralo usando su símbolo correcto.`;
+        const tenantPrompt = tenant.system_prompt ? tenant.system_prompt.trim() : "Vende con el catálogo.";
+        sysPrompt += `Instrucción: ${tenantPrompt}\nReglas:\n${rulesText}\nPrecios asumen moneda oficial: ${tenant.currency || 'USD'}.`;
 
         // 2. Cargar Historial de Conversación
         const dbHistory = await messageRepo.getRecentMessagesForAI(tenant_id, to, 4);
@@ -86,29 +67,37 @@ ${rulesText}
             if (defaultCatalog && defaultCatalog.length > 0) {
                 ragContext = defaultCatalog.map(p => ({
                     reference_id: p.id,
-                    content: `Producto: ${p.name}\nPrecio: ${p.price}\nDescripción: ${p.description || 'N/A'}`
+                    content: `${p.name}|Precio:${p.price}|Desc:${p.description || ''}`
                 }));
             }
         }
 
         let contextMsg = "";
         if (ragContext && ragContext.length > 0) {
-            contextMsg = "INFORMACIÓN RECUPERADA DE LA BASE DE CONOCIMIENTOS (CATÁLOGO/DOCS):\n";
-            ragContext.forEach(doc => {
-                contextMsg += `- ${doc.content} (Internal ID: ${doc.reference_id || 'N/A'})\n`;
-            });
-            contextMsg += "\nUsa esta información para responder al usuario. Si el usuario pide comprar un producto que está en la base de conocimientos, ofrece usar la herramienta create_order indicando los nombres exactos y cantidad.";
-            contextMsg += "\nINSTRUCCIÓN ESPECIAL PARA IMÁGENES: Si la información contiene un 'Internal ID', NUNCA le muestres ese número técnico al usuario ni hagas tablas. Si consideras que enviar una foto ayudaría a la venta, incluye discretamente al final de tu respuesta el código [IMG_<ID>] donde <ID> es el número interno (ejemplo: [IMG_45]). El sistema reemplazará ese código por la foto real de forma invisible.";
+            contextMsg = "CATÁLOGO:\n" + ragContext.map(d => `- ${d.content} (ID:${d.reference_id || ''})`).join('\n') +
+            "\nPara vender, usa create_order. Para fotos, añade [IMG_<ID>] al final. NO muestres IDs.";
         }
 
         // 4. Preparar Mensajes para el LLM
-        const messages = [];
-        messages.push({ role: "system", content: sysPrompt + (contextMsg ? `\n\n${contextMsg}` : "") });
-        messages.push(...dbHistory);
-        
-        // Inyectamos el mensaje actual del usuario solo si no fue precargado en la base de datos en este ms
+        const messages = [
+            { role: "system", content: sysPrompt }
+        ];
+
+        // Solo inyectar rol y content (limpieza de tokens)
+        const cleanHistory = dbHistory.map(m => ({ role: m.role, content: m.content }));
         if (!isMsgAlreadyInHistory) {
+            messages.push(...cleanHistory);
+            if (contextMsg) {
+                messages.push({ role: "system", content: contextMsg });
+            }
             messages.push({ role: "user", content: text });
+        } else {
+            const historyWithoutLast = cleanHistory.slice(0, -1);
+            messages.push(...historyWithoutLast);
+            if (contextMsg) {
+                messages.push({ role: "system", content: contextMsg });
+            }
+            messages.push(cleanHistory[cleanHistory.length - 1]);
         }
 
         const tools = [];
@@ -117,8 +106,8 @@ ${rulesText}
                 type: "function",
                 function: {
                     name: "register_customer_name",
-                    description: "Guarda permanentemente el nombre del cliente en la base de datos una vez que te lo dice (sólo úsala cuando el usuario te confirme cómo se llama).",
-                    parameters: { type: "object", properties: { name: { type: "string", description: "El nombre y/o apellido del cliente" } }, required: ["name"] }
+                    description: "Guarda nombre de cliente.",
+                    parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] }
                 }
             });
         }
@@ -127,7 +116,7 @@ ${rulesText}
                 type: "function",
                 function: {
                     name: "create_order",
-                    description: "Registra un pedido SOLO cuando el usuario ya confirmó qué productos quiere Y te dio su dirección de entrega. NO la uses si falta alguno de esos datos.",
+                    description: "Registra pedido SOLO con productos confirmados Y dirección.",
                     parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { product: { type: "string" }, quantity: { type: "integer" } } } }, delivery_address: { type: "string" } } }
                 }
             });
@@ -137,7 +126,7 @@ ${rulesText}
                 type: "function",
                 function: {
                     name: "transfer_to_human",
-                    description: "Transfiere la conversación a un operador humano. Úsala SOLAMENTE porque el cliente te lo está pidiendo explícitamente en este mensaje.",
+                    description: "Solo si el cliente exige humano explícitamente.",
                     parameters: { type: "object", properties: {} }
                 }
             });
