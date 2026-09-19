@@ -104,7 +104,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                 type: "function",
                 function: {
                     name: "transfer_to_human",
-                    description: "Transfiere la conversación a un humano si el usuario está enojado, pide hablar con un asesor, o hace una pregunta compleja que no puedes responder.",
+                    description: "¡USO RESTRINGIDO! Transfiere la conversación a un humano ÚNICAMENTE en dos casos: 1. El cliente ya te proporcionó sus datos (nombre y dirección) para finalizar un trámite/compra/inscripción. 2. El cliente exige explícita y agresivamente hablar con un operador humano. En cualquier otro caso, RESUELVE la duda tú mismo.",
                     parameters: { type: "object", properties: {} }
                 }
             }
