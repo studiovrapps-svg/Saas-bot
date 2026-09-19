@@ -1643,10 +1643,21 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                   
                                   <div className="mt-1">
                                       <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Respuesta</label>
-                                      <textarea value={faq.a} onChange={e => { const newFaqs = [...faqs]; newFaqs[index].a = e.target.value; setFaqs(newFaqs); }} className="w-full border border-gray-200 p-2 rounded-md outline-none focus:border-black bg-gray-50 resize-y text-sm" rows="3" placeholder="Ej: Aceptamos pago contra entrega..."></textarea>
-                                  </div>
-                              </div>
-                          ))}
+                                      <textarea value={faq.a} onChange={e => { const newFaqs = [...faqs]; newFaqs[index].a = e.target.value; setFaqs(newFaqs); }} className="w-full border border-gray-200 p-2 rounded-md outline-none focus:border-black bg-gray-50 resize-y text-sm" rows="3" placeholder="Ej: Aceptamos pago contra entrega..."></textarea></div>
+                                    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2">
+                                        <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-bold py-1 px-3 rounded-md transition-colors flex items-center gap-1">
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                                            Subir Imagen
+                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUploadFaqImage(e, index)} />
+                                        </label>
+                                        {faq.image_url && (
+                                            <div className="flex items-center gap-2 bg-white p-1 pr-2 rounded-lg border border-gray-200 shadow-sm">
+                                                <img src={faq.image_url} alt="Adjunto" className="w-6 h-6 object-cover rounded-md" />
+                                                <button onClick={() => { const newFaqs = [...faqs]; delete newFaqs[index].image_url; setFaqs(newFaqs); }} className="text-gray-400 hover:text-red-500 text-[10px] font-bold px-1 transition-colors">Quitar</button>
+                                            </div>
+                                        )}
+                                    </div>
+</div>))}
                           <button onClick={() => setFaqs([...faqs, { q: '', a: '' }])} className="w-full py-3 border border-dashed border-gray-300 rounded-lg text-gray-600 font-semibold hover:bg-gray-50 hover:border-gray-400 transition flex justify-center items-center gap-2 text-sm">
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg> Añadir Pregunta
                           </button>
