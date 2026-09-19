@@ -117,7 +117,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
         try {
             completion = await groq.chat.completions.create({
                 messages: messages,
-                model: "openai/gpt-oss-120b",
+                model: "openai/gpt-oss-20b",
                 temperature: 0.3,
                 max_tokens: 500,
                 tools: tools,
