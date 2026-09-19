@@ -295,7 +295,11 @@ function ClientDashboard() {
         const formData = new FormData();
         formData.append('image', file);
         try {
-            const res = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+            const res = await fetch(`${API_URL}/tenant/${tenantId}/upload`, { 
+                method: 'POST', 
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                body: formData 
+            });
             const data = await res.json();
             if (res.ok && data.url) {
                 let nf = [...faqs];
