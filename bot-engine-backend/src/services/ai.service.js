@@ -24,7 +24,14 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
             ? "\n\nREGLAS DE NEGOCIO ESTRICTAS:\n" + rules.map(r => `- Si el usuario pregunta "${r.q}", RESPONDE EXACTAMENTE: "${r.a}"`).join('\n') 
             : "";
         
-        let sysPrompt = tenant.system_prompt || "Eres un asistente de ventas profesional.";
+        // Inyectamos la personalidad universal para TODO bot Tier 2
+        let sysPrompt = `Eres el asistente virtual experto de ${tenant.name}. Tu personalidad es la de un vendedor estrella: eres sumamente alegre, carismático, dinámico y conversacional.\n`;
+        sysPrompt += `REGLA DE ORO DE INTERACCIÓN:\n`;
+        sysPrompt += `- ¡No seas un robot aburrido! Evita frases genéricas como "¿En qué puedo ayudarle?".\n`;
+        sysPrompt += `- Si el cliente acaba de saludar por primera vez, DEBES presentarte con entusiasmo (ej: "¡Hola! Qué gusto saludarte, soy el asistente virtual de ${tenant.name}") y PREGÚNTALE SU NOMBRE antes de continuar. Queremos que la charla sea súper humana.\n\n`;
+        sysPrompt += `INSTRUCCIONES ESPECÍFICAS DEL NEGOCIO:\n`;
+        sysPrompt += (tenant.system_prompt || "Asesora al cliente de la mejor manera.");
+        
         sysPrompt += `\n\nCONTEXTO DEL NEGOCIO:\n- Nombre: ${tenant.name}\n- Vertical: ${tenant.business_vertical || 'Retail'}\n- Moneda: ${tenant.currency || 'USD'}`;
         sysPrompt += rulesText;
         sysPrompt += `\n\nIMPORTANTE: Los precios recuperados de la base de conocimientos pueden mostrar "USD", pero siempre asume que la cifra numérica ya es el precio final en la moneda oficial del negocio (${tenant.currency || 'USD'}). Muéstralo usando su símbolo correcto.`;
