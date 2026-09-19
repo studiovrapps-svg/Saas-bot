@@ -13,7 +13,7 @@ async function logMessage(tenant_id, phone, direction, type, content, meta_messa
             `INSERT INTO chat_sessions (tenant_id, user_phone, customer_name, last_interaction) 
              VALUES ($1, $2, $3, CURRENT_TIMESTAMP) 
              ON CONFLICT (tenant_id, user_phone) 
-             DO UPDATE SET last_interaction = CURRENT_TIMESTAMP, customer_name = COALESCE($3, chat_sessions.customer_name)`,
+             DO UPDATE SET last_interaction = CURRENT_TIMESTAMP, customer_name = COALESCE(chat_sessions.customer_name, $3)`,
             [tenant_id, phone, customer_name]
         );
     } catch (e) {
