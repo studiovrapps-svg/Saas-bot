@@ -45,7 +45,7 @@ function Login() {
             </div>
         </div>
         
-        <h1 className="text-4xl font-black mb-1 text-center text-gray-900 tracking-tighter">Dynova</h1>
+        <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-12 w-auto object-contain mx-auto mb-3" />
         <p className="text-center text-sm text-gray-500 mb-8 font-medium">Ingresa a tu cuenta para continuar</p>
         
         {error && (
