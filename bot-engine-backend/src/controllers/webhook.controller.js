@@ -169,7 +169,7 @@ const processWebhookJob = async (body) => {
                             await handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name);
                         } else if (tenant.bot_tier >= 2) {
                             if (user_message) {
-                                await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, user_message, tenant.id);
+                                await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, user_message, tenant.id, customer_name);
                             }
                         }
                     }
