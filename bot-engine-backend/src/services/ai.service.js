@@ -20,9 +20,8 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id, custo
         if (!tenant) throw new Error("Tenant no encontrado en la base de datos.");
 
         const rules = await tenantRepo.getBusinessRules(tenant_id);
-        const rulesText = rules.length > 0 
-            ? "\n\nREGLAS DE NEGOCIO ESTRICTAS:\n" + rules.map((r, i) => `- TEMA: ${r.q}\n  Si el cliente pregunta por algo relacionado con esto, usa ESTA respuesta: "${r.a}"`).join('\n') 
-            : "";
+        // rules no longer injected statically. They are handled by RAG context.
+        const rulesText = "";
         
                 // --- CONSTRUCCIÓN DEL CEREBRO UNIVERSAL TIER 2 (OPTIMIZADO PARA 20B) ---
         // Este bloque aplica para CUALQUIER empresa nueva que contrate el bot Tier 2.
@@ -65,8 +64,8 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
         // -----------------------------------------------------------------------
         sysPrompt += `\n\nIMPORTANTE: Los precios recuperados de la base de conocimientos pueden mostrar "USD", pero siempre asume que la cifra numérica ya es el precio final en la moneda oficial del negocio (${tenant.currency || 'USD'}). Muéstralo usando su símbolo correcto.`;
 
-        // 2. Cargar Historial de Base de Datos
-        const dbHistory = await messageRepo.getRecentMessagesForAI(tenant_id, to, 8);
+        // 2. Cargar Historial de Conversación
+        const dbHistory = await messageRepo.getRecentMessagesForAI(tenant_id, to, 4);
 
         // QA FIX: Evitar duplicación del mensaje actual del usuario si ya está en DB (por concurrencia de inserción)
         const lastMsg = dbHistory.length > 0 ? dbHistory[dbHistory.length - 1] : null;

@@ -52,6 +52,32 @@ async function deleteProductKnowledge(tenantId, productId) {
 }
 
 /**
+ * Sync a business rule to the knowledge base
+ */
+async function upsertRuleKnowledge(tenantId, ruleId, question, answer, imageUrl = null) {
+    let content = `Regla/FAQ:\nP: ${question}\nR: ${answer}`;
+    if (imageUrl) content += `\nImagen asociada: ${imageUrl}`;
+    
+    const embedding = await generateEmbedding(content, TaskType.RETRIEVAL_DOCUMENT);
+    const embeddingString = `[${embedding.join(',')}]`;
+
+    const sql = `
+        INSERT INTO knowledge_base (tenant_id, type, reference_id, chunk_index, content, embedding) 
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (tenant_id, type, reference_id, chunk_index) 
+        DO UPDATE SET content = EXCLUDED.content, embedding = EXCLUDED.embedding, created_at = CURRENT_TIMESTAMP
+    `;
+    await pool.query(sql, [tenantId, 'rule', ruleId, 0, content, embeddingString]);
+}
+
+/**
+ * Delete a rule from knowledge base
+ */
+async function deleteRuleKnowledge(tenantId, ruleId) {
+    await pool.query('DELETE FROM knowledge_base WHERE tenant_id = $1 AND type = $2 AND reference_id = $3', [tenantId, 'rule', ruleId]);
+}
+
+/**
  * Search the top N most relevant chunks for a given query
  */
 async function searchRelevantContext(tenantId, query, limit = 3) {
@@ -82,5 +108,7 @@ module.exports = {
     generateEmbedding,
     upsertProductKnowledge,
     deleteProductKnowledge,
+    upsertRuleKnowledge,
+    deleteRuleKnowledge,
     searchRelevantContext
 };

@@ -1,2 +1,5 @@
 const pool = require('./src/config/db');
-pool.query("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'knowledge_base'").then(res => { console.log(res.rows); process.exit(0); });
+pool.query("SELECT column_name FROM information_schema.columns WHERE table_name = 'knowledge_base'").then(r => {
+    console.log(r.rows.map(x=>x.column_name));
+    process.exit(0);
+});
