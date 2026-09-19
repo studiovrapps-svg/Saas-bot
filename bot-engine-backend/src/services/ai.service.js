@@ -121,14 +121,16 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
                 }
             });
         }
-        tools.push({
-            type: "function",
-            function: {
-                name: "create_order",
-                description: "Registra un pedido SOLO cuando el usuario ya confirmó qué productos quiere Y te dio su dirección de entrega. NO la uses si falta alguno de esos datos.",
-                parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { product: { type: "string" }, quantity: { type: "integer" } } } }, delivery_address: { type: "string" } } }
-            }
-        });
+        if (text.match(/comprar|quiero|pedido|encargo|enviar|dirección|mandar|unidades|litros/i)) {
+            tools.push({
+                type: "function",
+                function: {
+                    name: "create_order",
+                    description: "Registra un pedido SOLO cuando el usuario ya confirmó qué productos quiere Y te dio su dirección de entrega. NO la uses si falta alguno de esos datos.",
+                    parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { product: { type: "string" }, quantity: { type: "integer" } } } }, delivery_address: { type: "string" } } }
+                }
+            });
+        }
         if (text.match(/humano|asesor|agente|persona real|contacto|representante/i)) {
             tools.push({
                 type: "function",
@@ -143,16 +145,20 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 12000); // 12 segundos máximo
         
+        const payload = {
+            messages: messages,
+            model: "openai/gpt-oss-20b",
+            temperature: 0.3,
+            max_tokens: 500
+        };
+        if (tools.length > 0) {
+            payload.tools = tools;
+            payload.tool_choice = "auto";
+        }
+
         let completion;
         try {
-            completion = await groq.chat.completions.create({
-                messages: messages,
-                model: "openai/gpt-oss-20b",
-                temperature: 0.3,
-                max_tokens: 500,
-                tools: tools,
-                tool_choice: "auto"
-            }, { signal: controller.signal });
+            completion = await groq.chat.completions.create(payload, { signal: controller.signal });
             clearTimeout(timeout);
         } catch (apiErr) {
             clearTimeout(timeout);
