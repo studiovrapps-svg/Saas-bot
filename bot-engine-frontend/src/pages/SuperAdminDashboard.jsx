@@ -275,15 +275,10 @@ function SuperAdminDashboard() {
       )}
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="p-6 border-b border-gray-100 flex items-center gap-3">
-          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
-             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+        <div className="p-6 border-b border-gray-100 flex flex-col items-center justify-center text-center">
+            <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain -mt-2 -mb-2" />
+            <p className="text-gray-500 text-xs font-bold tracking-wider uppercase mt-1">Super Admin</p>
           </div>
-          <div>
-              <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain -ml-3 -mt-2 -mb-2" />
-              <p className="text-gray-500 text-xs font-bold tracking-wider uppercase">Super Admin</p>
-          </div>
-        </div>
         
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
           <div onClick={() => setActiveAdminTab("metricas")} className={`${activeAdminTab === "metricas" ? "bg-gray-100 text-gray-900" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
