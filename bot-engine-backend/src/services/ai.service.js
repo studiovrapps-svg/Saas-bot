@@ -273,11 +273,22 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
 
         if (finalResponseText) {
             const regex = /\[IMG_(\d+)\]/g;
+            const faqRegex = /\[FAQ_IMG_(\d+)\]/g;
             let textToSend = finalResponseText;
             let match;
             const imagesToSend = [];
+            const faqImagesToSend = [];
+
             while ((match = regex.exec(finalResponseText)) !== null) {
                 imagesToSend.push(parseInt(match[1]));
+                textToSend = textToSend.replace(match[0], '');
+            }
+
+            while ((match = faqRegex.exec(textToSend)) !== null) {
+                const idx = parseInt(match[1]);
+                if (rules[idx] && rules[idx].image_url) {
+                    faqImagesToSend.push({ url: rules[idx].image_url, caption: rules[idx].q });
+                }
                 textToSend = textToSend.replace(match[0], '');
             }
             
