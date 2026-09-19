@@ -14,20 +14,23 @@ async function logMessage(tenant_id, phone, direction, type, content, meta_messa
 
 async function sendWhatsAppMenu(phone_number_id, token, to, tenant_id, tenant_name) {
     try {
-        const prodResult = await pool.query('SELECT * FROM products WHERE tenant_id = $1 AND is_active = true LIMIT 10', [tenant_id]);
+        const tenantResult = await pool.query('SELECT currency, business_vertical FROM tenants WHERE id = $1', [tenant_id]);
+          const currency = tenantResult.rows[0]?.currency || 'Q';
+          const vertical = tenantResult.rows[0]?.business_vertical || 'ecommerce';
+          const prodResult = await pool.query('SELECT * FROM products WHERE tenant_id = $1 AND is_active = true LIMIT 10', [tenant_id]);
         const productos = prodResult.rows;
         let payload;
         if (productos.length === 0) {
             payload = { messaging_product: `whatsapp`, to: to, type: `text`, text: { body: `Hola! Bienvenido a *${tenant_name}*.\nEn este momento estamos actualizando nuestro catálogo. ¡Vuelve pronto!` } };
         } else {
-            const rows = productos.map(p => ({ id: `prod_${p.id}`, title: p.name.substring(0, 24), description: `Q${p.price} - ${(p.description || '').substring(0, 50)}` }));
+            const rows = productos.map(p => ({ id: `prod_${p.id}`, title: p.name.substring(0, 24), description: `${currency}${p.price} - ${(p.description || '').substring(0, 50)}` }));
             payload = {
                 messaging_product: `whatsapp`, to: to, type: `interactive`,
                 interactive: {
                     type: `list`, header: { type: `text`, text: (`Menú de ${tenant_name}`).substring(0, 60) },
                     body: { text: `Selecciona el producto que deseas pedir o consultar:` },
                     footer: { text: `SaaS Bot Engine` },
-                    action: { button: `Ver Catálogo 🛒`, sections: [{ title: `Productos Disponibles`, rows: rows }] }
+                    action: { button: vertical === 'clinic' ? 'Ver Servicios 🩺' : 'Ver Catálogo 🛍️', sections: [{ title: vertical === 'clinic' ? 'Servicios Disponibles' : 'Productos Disponibles', rows: rows }] }
                 }
             };
         }

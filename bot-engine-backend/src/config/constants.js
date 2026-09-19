@@ -1,4 +1,9 @@
 module.exports = {
+    VERTICALS: {
+        ECOMMERCE: 'ecommerce',
+        CLINIC: 'clinic',
+        LEAD_GEN: 'lead_gen'
+    },
     // Tiempos (Timeouts)
     HANDOFF_SILENCE_DURATION_MS: 2 * 60 * 60 * 1000, // 2 horas de silencio del bot cuando se pasa a humano
 

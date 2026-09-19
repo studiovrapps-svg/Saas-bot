@@ -204,6 +204,13 @@ async function extractMessageContent(msgObj, tenant) {
 
 // Lógica de carrito Tier 1 abstraída
 async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name) {
+    if (tenant.business_vertical === 'clinic') {
+        return await handleClinicFlow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name);
+    }
+    if (tenant.business_vertical === 'lead_gen') {
+        return await handleLeadGenFlow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name);
+    }
+
     let text = user_message.toLowerCase();
 
     // Enviar menú principal Helper
@@ -317,12 +324,12 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             
             // --- TELEGRAM ALERT ---
             const { sendTelegramAlert, escapeHTML } = require('../services/telegram.service');
-            sendTelegramAlert(tenant.id, `🚨 <b>NUEVO PEDIDO (Tier 1)</b> 🚨\n\n<b>Cliente:</b> ${escapeHTML(cName)}\n<b>Teléfono:</b> ${from}\n<b>Dirección:</b> ${escapeHTML(user_message)}\n\n<b>Productos:</b>\n${escapeHTML(cartSummary)}\n\n💰 <b>Total:</b> Q${total.toFixed(2)}`).catch(e => console.error(e));
+            sendTelegramAlert(tenant.id, `🚨 <b>NUEVO PEDIDO (Tier 1)</b> 🚨\n\n<b>Cliente:</b> ${escapeHTML(cName)}\n<b>Teléfono:</b> ${from}\n<b>Dirección:</b> ${escapeHTML(user_message)}\n\n<b>Productos:</b>\n${escapeHTML(cartSummary)}\n\n💰 <b>Total:</b> ${tenant.currency || 'Q'}${total.toFixed(2)}`).catch(e => console.error(e));
             // ----------------------
 
             let orderId = Math.floor(1000 + Math.random() * 9000);
             
-            let finalMsg = `${COPY.ORDER_SUCCESS}\n*Orden #${orderId}*\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n💰 *Total a pagar: Q${total.toFixed(2)}*\n\n👤 Nombre: ${cName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
+            let finalMsg = `${COPY.ORDER_SUCCESS}\n*Orden #${orderId}*\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n💰 *Total a pagar: ${tenant.currency || 'Q'}${total.toFixed(2)}*\n\n👤 Nombre: ${cName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
             await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
             
             await sessionRepo.clearSessionState(tenant.id, from);
@@ -450,3 +457,113 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
 }
 
 module.exports = { verifyWebhook, processWebhook, processWebhookJob };
+async function handleClinicFlow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name) {
+    let text = user_message.toLowerCase();
+    const { sessionRepo } = require('../repositories/session.repository'); // ensure access
+    const { sendWhatsAppText } = require('../services/whatsapp.service');
+
+    if (msgObj.type !== 'text') {
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "Por favor, responde con texto para continuar con tu solicitud.", tenant.id);
+        return;
+    }
+
+    if (state.step === 'awaiting_appointment_reason') {
+        state.appointment_reason = user_message;
+        state.step = 'awaiting_appointment_date';
+        await require('../repositories/session.repository').setSessionState(tenant.id, from, state);
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "¿Para qué fecha y hora te gustaría agendar tu cita?", tenant.id);
+        return;
+    }
+
+    if (state.step === 'awaiting_appointment_date') {
+        state.appointment_date = user_message;
+        state.step = 'awaiting_appointment_name';
+        await require('../repositories/session.repository').setSessionState(tenant.id, from, state);
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "Por favor, indícame el nombre completo del paciente.", tenant.id);
+        return;
+    }
+
+    if (state.step === 'awaiting_appointment_name') {
+        let finalMsg = `${tenant.checkout_message || '¡Gracias! Hemos recibido tu solicitud de cita.'}\n\n*Resumen:*\n- Paciente: ${user_message}\n- Motivo: ${state.appointment_reason}\n- Fecha/Hora: ${state.appointment_date}`;
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
+        
+        await require('../repositories/session.repository').clearSessionState(tenant.id, from);
+        const { HANDOFF_SILENCE_DURATION_MS } = require('../config/constants');
+        const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
+        await require('../repositories/session.repository').setHumanStatus(tenant.id, from, mutedTimestamp);
+        return;
+    }
+
+    // Default Clinic Menu (Intercepts prod_ or Ver Servicios)
+    if (text.includes('ver servicios') || text.includes('agendar')) {
+        state.step = 'awaiting_appointment_reason';
+        await require('../repositories/session.repository').setSessionState(tenant.id, from, state);
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "¡Claro! ¿Cuál es el motivo de tu consulta o el servicio que buscas?", tenant.id);
+        return;
+    }
+
+    if (text.startsWith('prod_')) {
+        // They clicked a specific service from the catalog
+        state.step = 'awaiting_appointment_date';
+        state.appointment_reason = "Servicio seleccionado del catálogo";
+        await require('../repositories/session.repository').setSessionState(tenant.id, from, state);
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "Excelente elección. ¿Para qué fecha y hora te gustaría agendardo?", tenant.id);
+        return;
+    }
+
+    // Fallback back to standard Tier 1 greeting logic but block cart operations
+    // Actually just use the main flow but replace the 'Ver productos' button logic.
+    // To keep it simple, we will send the custom menu.
+    let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+    let rows = [{ id: 'btn_catalogo', title: '🩺 Ver Servicios' }];
+    menus.forEach((m, idx) => {
+        if (m.title && m.title.trim().length > 0) rows.push({ id: `btn_faq_${idx}`, title: m.title.trim().substring(0, 24) });
+    });
+    
+    // Check if it's an FAQ click
+    if (msgObj.type === 'interactive' && msgObj.interactive.type === 'list_reply') {
+        let btnId = msgObj.interactive.list_reply.id;
+        if (btnId.startsWith('btn_faq_')) {
+            let idx = parseInt(btnId.replace('btn_faq_', ''));
+            if (menus[idx]) {
+                let responseText = menus[idx].content || menus[idx].response;
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
+                return;
+            }
+        }
+    }
+
+    let greetingText = tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}.`;
+    let payload = {
+        messaging_product: 'whatsapp', to: from, type: 'interactive',
+        interactive: {
+            type: 'list', header: { type: 'text', text: 'Menú Principal' },
+            body: { text: greetingText },
+            footer: { text: 'SaaS Bot Engine' },
+            action: { button: 'Opciones', sections: [{ title: 'Selecciona una opción', rows: rows }] }
+        }
+    };
+    await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${tenant.whatsapp_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+}
+
+async function handleLeadGenFlow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name) {
+    const { sendWhatsAppText } = require('../services/whatsapp.service');
+    
+    // Very simple: Greeting -> Ask Email/Phone -> Thank you
+    if (state.step === 'awaiting_contact_info') {
+        let finalMsg = `${tenant.checkout_message || 'Gracias por tus datos. Nos contactaremos pronto.'}\n\n*Datos recibidos:* ${user_message}`;
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
+        await require('../repositories/session.repository').clearSessionState(tenant.id, from);
+        const { HANDOFF_SILENCE_DURATION_MS } = require('../config/constants');
+        await require('../repositories/session.repository').setHumanStatus(tenant.id, from, Date.now() + HANDOFF_SILENCE_DURATION_MS);
+        return;
+    }
+
+    state.step = 'awaiting_contact_info';
+    await require('../repositories/session.repository').setSessionState(tenant.id, from, state);
+    let greetingText = tenant.tier1_greeting || `¡Hola! Bienvenido a ${tenant.name}. ¿Cómo podemos ayudarte hoy?`;
+    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, greetingText + "\n\nPor favor déjanos tus datos de contacto y consulta:", tenant.id);
+}

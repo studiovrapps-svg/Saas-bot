@@ -34,17 +34,17 @@ const updateCliente = async (req, res) => {
 
 const getTenantConfig = async (req, res) => {
     try {
-        const result = await pool.query('SELECT name, bot_tier, system_prompt, tier1_greeting, tier1_menu, business_rules, features, whatsapp_phone_id, meta_name, meta_picture FROM tenants WHERE id = $1', [req.params.id]);
+        const result = await pool.query('SELECT name, bot_tier, system_prompt, tier1_greeting, tier1_menu, business_rules, features, whatsapp_phone_id, meta_name, meta_picture, business_vertical, currency, checkout_message FROM tenants WHERE id = $1', [req.params.id]);
         res.json(result.rows[0]);
     } catch (error) { res.status(500).json({ error: `Error interno` }); }
 };
 
 const updateTenantConfig = async (req, res) => {
     try {
-        const { system_prompt, tier1_greeting, tier1_menu, business_rules } = req.body;
+        const { system_prompt, tier1_greeting, tier1_menu, business_rules, business_vertical, currency, checkout_message } = req.body;
         await pool.query(
-            'UPDATE tenants SET system_prompt = $1, tier1_greeting = $2, tier1_menu = $3, business_rules = $4 WHERE id = $5',
-            [system_prompt, tier1_greeting, JSON.stringify(tier1_menu || []), business_rules, req.params.id]
+            'UPDATE tenants SET system_prompt = $1, tier1_greeting = $2, tier1_menu = $3, business_rules = $4, business_vertical = COALESCE($6, business_vertical), currency = COALESCE($7, currency), checkout_message = COALESCE($8, checkout_message) WHERE id = $5',
+            [system_prompt, tier1_greeting, JSON.stringify(tier1_menu || []), business_rules, req.params.id, business_vertical, currency, checkout_message]
         );
         res.json({ message: `Configuración guardada` });
     } catch (error) { console.error(error); res.status(500).json({ error: `Error interno` }); }
