@@ -133,7 +133,7 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
             type: "function",
             function: {
                 name: "transfer_to_human",
-                description: "¡USO RESTRINGIDO! Transfiere la conversación a un humano ÚNICAMENTE en dos casos: 1. El cliente ya te proporcionó sus datos para finalizar un trámite/compra. 2. El cliente exige hablar con un humano. En cualquier otro caso, RESUELVE la duda tú mismo.",
+                description: "PROHIBIDO usar esta herramienta para preguntas sobre productos, precios, distribuidores o cualquier tema que puedas resolver tú mismo con la información disponible. SOLO úsala si el cliente dice EXPLÍCITAMENTE frases como 'quiero hablar con un humano', 'pásame con un agente' o 'necesito hablar con una persona real'. Preguntas como '¿cómo ser distribuidor?' NO son motivo de transferencia.",
                 parameters: { type: "object", properties: {} }
             }
         });
