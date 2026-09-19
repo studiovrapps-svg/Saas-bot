@@ -285,6 +285,25 @@ function ClientDashboard() {
       setSavingPrompt(false);
   };
 
+    
+    const handleUploadFaqImage = async (e, idx) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('image', file);
+        try {
+            const res = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (res.ok && data.url) {
+                let nf = [...faqs];
+                nf[idx].image_url = data.url;
+                setFaqs(nf);
+            } else {
+                alert("Error subiendo imagen: " + (data.error || ""));
+            }
+        } catch(err) { console.error(err); alert("Error de red al subir imagen"); }
+    };
+
     const handleImageUploadMenu = async (idx, file) => {
         if (!file) return;
         const formData = new FormData();
