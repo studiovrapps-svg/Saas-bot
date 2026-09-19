@@ -1383,278 +1383,112 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                 <div className="max-w-4xl mx-auto mt-8">
                   <h2 className="text-3xl font-extrabold text-gray-900 mb-6">Configuración</h2>
 
-<div className="bg-white/80 p-6 rounded-2xl shadow-sm border border-gray-100 mb-6 relative overflow-hidden backdrop-blur-sm">
-    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
-    <h2 className="text-xl font-bold text-gray-800 mb-3 flex items-center gap-2">🏢 Tipo de Negocio y Formato</h2>
-    
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Vertical de Negocio</label>
-            <select value={businessVertical} onChange={e => setBusinessVertical(e.target.value)} className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white">
-                <option value="ecommerce">Tienda / E-commerce (Carrito de compras)</option>
-                <option value="clinic">Clínica / Servicios (Agendar Citas)</option>
-                <option value="lead_gen">Generación de Leads (Recopilar Datos)</option>
-            </select>
-            <p className="text-xs text-gray-500 mt-1">Define el comportamiento principal del bot en Tier 1.</p>
-        </div>
-        <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Moneda Local</label>
-            <input type="text" value={currency} onChange={e => setCurrency(e.target.value)} className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white" placeholder="Ej: Q, $, MXN" />
-            <p className="text-xs text-gray-500 mt-1">Símbolo usado en el catálogo y precios.</p>
-        </div>
-    </div>
-    
-    <div className="mt-4">
-        <label className="block text-sm font-bold text-gray-700 mb-1">Mensaje de Finalización (Checkout / Despedida)</label>
-        <textarea value={checkoutMessage} onChange={e => setCheckoutMessage(e.target.value)} className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white resize-none" rows="2" placeholder="Ej: Un asesor se contactará para coordinar el pago..."></textarea>
-        <p className="text-xs text-gray-500 mt-1">Este texto se envía al finalizar un pedido, agendar cita o recolectar un lead.</p>
-    </div>
-</div>
-
-                  
-                  <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-8 items-center">
-                    <div className="flex-1">
-                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-6">
-                            <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                        </div>
-                        <h3 className="text-2xl font-bold text-gray-900 mb-3">Conecta tu WhatsApp Business</h3>
-                        <p className="text-gray-600 mb-4 leading-relaxed">Vincula tu número de negocio usando la conexión oficial de Meta. Podrás seguir usando la app de WhatsApp Business en tu celular mientras nuestro bot responde por ti automáticamente.</p>
+<div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+                
+                {/* COLUMNA IZQUIERDA: Configuraciones Generales */}
+                <div className="flex flex-col gap-6">
+                    
+                    {/* Tarjeta 1: Tipo de Negocio */}
+                    <div className="bg-white/90 p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden backdrop-blur-sm">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
+                        <h2 className="text-xl font-bold text-gray-800 mb-6 relative z-10">Tipo de Negocio y Formato</h2>
                         
-                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-left">
-                            <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2 text-sm">
-                                <svg className="w-4 h-4 text-gray-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                                Beneficios de la Coexistencia
-                            </h4>
-                            <ul className="text-sm text-gray-600 space-y-1">
-                                <li className="flex gap-2"><span>✅</span> Mantienes tu celular conectado.</li>
-                                <li className="flex gap-2"><span>✅</span> Historial de chats intacto en tu app.</li>
-                                <li className="flex gap-2"><span>✅</span> Cero riesgo de bloqueos (100% Oficial).</li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div className="flex-1 w-full flex flex-col justify-center">
-                        {tenantInfo && tenantInfo.whatsapp_phone_id ? (
-                            <div className="bg-green-50 border border-green-200 text-green-800 p-6 rounded-xl flex flex-col items-center gap-3 text-center">
-                                {tenantInfo.meta_picture ? (
-                                    <img src={tenantInfo.meta_picture} alt="WhatsApp Profile" className="w-20 h-20 rounded-full border-4 border-green-200 shadow-sm" />
-                                ) : (
-                                    <svg className="w-16 h-16 text-green-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                )}
-                                <div className="font-bold text-lg">{tenantInfo.meta_name || "Cuenta Conectada"}</div>
-                                <div className="text-xs font-mono bg-green-100 text-green-700 px-2 py-1 rounded-md">ID: {tenantInfo.whatsapp_phone_id}</div>
-                                <p className="text-sm font-normal mt-2 text-green-700">El bot está activo y escuchando en Coexistencia.</p>
-                                <button onClick={() => alert("Para desconectar, hazlo desde tu app de WhatsApp Business en Configuración > Herramientas para la empresa > Meta.")} className="mt-2 text-xs underline text-green-600 hover:text-green-800">¿Cómo desconectar?</button>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 relative z-10">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1.5">Vertical de Negocio</label>
+                                <select value={businessVertical} onChange={e => setBusinessVertical(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm transition-shadow">
+                                    <option value="ecommerce">Tienda / E-commerce (Carrito)</option>
+                                    <option value="clinic">Clínica / Servicios (Citas)</option>
+                                    <option value="lead_gen">Generación de Leads (Datos)</option>
+                                </select>
                             </div>
-                        ) : (
-                            <button onClick={handleMetaLogin} disabled={loading} className={`w-full ${loading ? 'bg-gray-400' : 'bg-[#1877F2] hover:bg-[#166FE5]'} text-white font-bold py-4 px-6 rounded-xl shadow-lg transition flex items-center justify-center gap-3 text-lg`}>
-                                {loading ? (
-                                    <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                ) : (
-                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                                )}
-                                {loading ? 'Abriendo Facebook...' : 'Conectar con Facebook'}
-                            </button>
-                        )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'afiliados' && (
-                  <div className="max-w-5xl mx-auto mt-8">
-                    <div className="flex items-center justify-between mb-6">
-                        <div>
-                            <h2 className="text-3xl font-extrabold text-gray-900">Programa de Partners</h2>
-                            <p className="text-sm text-gray-500 mt-1">Gana comisiones recurrentes por cada cliente que refieras a nuestra plataforma.</p>
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1.5">Moneda Local</label>
+                                <input type="text" value={currency} onChange={e => setCurrency(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm transition-shadow" placeholder="Ej: Q, $, MXN" />
+                            </div>
                         </div>
-                        <span className="bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-xs font-bold border border-indigo-200">En Construcción 🚧</span>
+                        
+                        <div className="mt-5 relative z-10">
+                            <label className="block text-sm font-bold text-gray-700 mb-1.5">Mensaje de Finalización (Checkout / Despedida)</label>
+                            <textarea value={checkoutMessage} onChange={e => setCheckoutMessage(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm resize-none transition-shadow" rows="3" placeholder="Ej: Un asesor se contactará para coordinar el pago..."></textarea>
+                            <p className="text-xs text-gray-500 mt-2">Texto enviado al finalizar un pedido, agendar cita o recolectar un lead.</p>
+                        </div>
+                    </div>
+
+                    {/* Tarjeta 2: Mensaje de Saludo */}
+                    <div className="bg-white/90 p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden backdrop-blur-sm">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
+                        <h2 className="text-xl font-bold text-gray-800 mb-6 relative z-10">Mensaje de Saludo</h2>
+                        <textarea value={tier1Greeting} onChange={e => setTier1Greeting(e.target.value)} className="w-full border border-gray-200 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm resize-none transition-shadow text-gray-700 relative z-10" rows="4" placeholder="Ej: Hola! Gracias por comunicarte con nosotros..."></textarea>
+                        <p className="text-xs text-gray-500 mt-2 relative z-10">Este es el mensaje de bienvenida que se muestra al iniciar una conversación.</p>
+                    </div>
+
+                </div>
+
+                {/* COLUMNA DERECHA: Opciones del Menú */}
+                <div className="bg-white/90 p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden backdrop-blur-sm flex flex-col h-full">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
+                    
+                    <div className="flex justify-between items-center mb-6 relative z-10">
+                        <h2 className="text-xl font-bold text-gray-800">Opciones del Menú (Botones)</h2>
+                        <button onClick={handleAddMenu} className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-bold transition shadow-sm">+ Añadir Opción</button>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                            <p className="text-sm font-bold text-gray-500 mb-1">Total Referidos</p>
-                            <p className="text-4xl font-extrabold text-gray-900">0</p>
-                            <p className="text-xs text-gray-400 mt-2">Negocios activos usando tu código</p>
-                        </div>
-                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                            <p className="text-sm font-bold text-gray-500 mb-1">Comisiones Pendientes</p>
-                            <p className="text-4xl font-extrabold text-amber-500">0.00 USD</p>
-                            <p className="text-xs text-gray-400 mt-2">Próximo pago a fin de mes</p>
-                        </div>
-                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
-                            <p className="text-sm font-bold text-gray-500 mb-1">Total Pagado</p>
-                            <p className="text-4xl font-extrabold text-green-500">0.00 USD</p>
-                            <p className="text-xs text-gray-400 mt-2">Ganancias históricas</p>
-                        </div>
-                    </div>
-
-                    <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm mb-8 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-0 opacity-50"></div>
-                        <h3 className="text-lg font-bold text-gray-800 mb-4 relative z-10">Tu Enlace de Afiliado</h3>
-                        <p className="text-sm text-gray-600 mb-4 relative z-10">Comparte este enlace con tus prospectos. Si se registran usándolo, recibirás una comisión mensual mientras mantengan su suscripción activa.</p>
+                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-4 relative z-10">
                         
-                        <div className="flex flex-col md:flex-row gap-3 relative z-10">
-                            <input type="text" readOnly value="https://dynova.neofenix.dev/registro?ref=PROXIMAMENTE" className="flex-1 bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none" />
-                            <button className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2.5 px-6 rounded-lg transition-colors cursor-not-allowed">
-                                Copiar Enlace
-                            </button>
+                        <div className="flex items-center gap-4 p-4 bg-indigo-50 border border-indigo-100 rounded-xl shadow-sm">
+                            <div className="bg-white p-2.5 rounded-lg shadow-sm">
+                                <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-indigo-900 text-sm">{businessVertical === 'clinic' ? 'Ver Servicios' : (businessVertical === 'lead_gen' ? 'Catálogo' : 'Ver Productos')}</h3>
+                                <p className="text-xs text-indigo-700/80 mt-0.5 font-medium">Opción fija del sistema (abre el catálogo).</p>
+                            </div>
                         </div>
-                    </div>
+                        
+                        {tier1Menu.map((m, idx) => (
+                            <div key={idx} className="p-5 bg-white rounded-xl border border-gray-200 shadow-sm hover:border-indigo-300 transition-all relative group">
+                                <div className="absolute top-4 right-4 z-10">
+                                    <button onClick={() => setDeleteConfirm({ isOpen: true, type: 'menu', index: idx })} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors" title="Eliminar opción">
+                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                </div>
 
-                    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-gray-100">
-                            <h3 className="text-lg font-bold text-gray-800">Tus Clientes Referidos</h3>
-                        </div>
-                        <div className="p-12 text-center flex flex-col items-center justify-center">
-                            <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
-                            <h4 className="text-gray-500 font-semibold">Módulo en construcción</h4>
-                            <p className="text-gray-400 text-sm mt-2 max-w-sm">Próximamente podrás ver aquí la lista de negocios que han ingresado con tu enlace y las comisiones generadas.</p>
-                        </div>
-                    </div>
-                  </div>
-              )}
-
-              {activeTab === 'productos' && (
-              <>
-                {/* Cabecera del Módulo */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
-                  <div>
-                      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-                        <svg className="w-7 h-7 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-                        Mi Catálogo Virtual
-                      </h1>
-                      <p className="text-gray-500 mt-1 text-sm">Administra los productos de tu negocio. Los cambios se reflejan en tiempo real en WhatsApp.</p>
-                  </div>
-                  <button onClick={() => { setEditProductId(null); setFormData({name:'', description:'', price:''}); setShowModal(true); }} className="mt-4 md:mt-0 w-full md:w-auto bg-black text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 font-bold shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center md:justify-start gap-2 text-sm">
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
-                      Nuevo Producto
-                  </button>
-                </div>
-              </>
-            )}
-
-      {/* SECCIÓN IA (Solo visible si es Nivel 2 o 3) */}
-      {activeTab === 'chatbots' && tenantInfo && tenantInfo.bot_tier >= 2 && (
-          <div className="mb-10 relative">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Tarjeta 1: Personalidad (Izquierda) */}
-                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit">
-                      <div className="flex items-center gap-2 mb-1">
-                          <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                          <h2 className="text-lg font-bold text-gray-900">Personalidad del Agente</h2>
-                      </div>
-                      <p className="text-gray-500 text-xs mb-4">Instrucciones de comportamiento, tono y límites.</p>
-                      <textarea 
-                          value={systemPrompt} 
-                          onChange={e => setSystemPrompt(e.target.value)} 
-                          className="w-full border border-gray-200 p-4 rounded-lg outline-none focus:ring-1 focus:ring-gray-900 bg-gray-50 resize-y text-gray-700 text-sm font-mono leading-relaxed" 
-                          rows="18"
-                          placeholder="Instrucciones para el Bot..."
-                      ></textarea>
-                  </div>
-
-                  {/* Tarjeta 2: Base de Conocimiento (Derecha) */}
-                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit">
-                      <div className="flex items-center gap-2 mb-1">
-                          <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                          <h2 className="text-lg font-bold text-gray-900">Base de Conocimiento</h2>
-                      </div>
-                      <p className="text-gray-500 text-xs mb-5">Agrega preguntas comunes y sus respuestas. La IA nunca inventará datos.</p>
-                      
-                      <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                          {faqs.map((faq, index) => (
-                              <div key={index} className="flex flex-col gap-2 bg-white p-4 rounded-lg border border-gray-200 relative group hover:border-gray-400 transition shadow-sm">
-                                  <button onClick={() => setDeleteConfirm({ isOpen: true, type: 'faq', index: index })} className="absolute -top-2 -right-2 bg-white border border-gray-200 text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-sm" title="Eliminar">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                  </button>
-                                  
-                                  <div>
-                                      <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Pregunta</label>
-                                      <input type="text" value={faq.q} onChange={e => { const newFaqs = [...faqs]; newFaqs[index].q = e.target.value; setFaqs(newFaqs); }} className="w-full border-b border-gray-200 pb-1 outline-none focus:border-black bg-transparent text-sm font-medium" placeholder="Ej: ¿Cuáles son las formas de pago?" />
-                                  </div>
-                                  
-                                  <div className="mt-1">
-                                      <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Respuesta</label>
-                                      <textarea value={faq.a} onChange={e => { const newFaqs = [...faqs]; newFaqs[index].a = e.target.value; setFaqs(newFaqs); }} className="w-full border border-gray-200 p-2 rounded-md outline-none focus:border-black bg-gray-50 resize-y text-sm" rows="3" placeholder="Ej: Aceptamos pago contra entrega..."></textarea>
-                                  </div>
-                              </div>
-                          ))}
-                          <button onClick={() => setFaqs([...faqs, { q: '', a: '' }])} className="w-full py-3 border border-dashed border-gray-300 rounded-lg text-gray-600 font-semibold hover:bg-gray-50 hover:border-gray-400 transition flex justify-center items-center gap-2 text-sm">
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg> Añadir Pregunta
-                          </button>
-                      </div>
-                  </div>
-              </div>
-
-              {/* Botón de Guardar General */}
-              <div className="flex justify-center mt-8 sticky bottom-6 z-10">
-                  <button onClick={handleSaveConfig} disabled={savingPrompt} className="bg-black text-white px-8 py-3 rounded-full font-semibold hover:bg-gray-800 transition shadow-xl flex items-center gap-2 transform hover:scale-105 text-sm border border-gray-700">
-                      {savingPrompt ? 'Guardando...' : (
-                        <>
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-                          Guardar Configuración
-                        </>
-                      )}
-                  </button>
-              </div>
-          </div>
-      )}
-
-      {/* SECCIÓN MENÚ RÍGIDO (Solo visible si es Nivel 1) */}
-      {activeTab === 'chatbots' && tenantInfo && tenantInfo.bot_tier === 1 && (
-          <div className="bg-white/80 p-6 md:p-8 rounded-2xl border border-gray-100 shadow-sm mb-8 relative overflow-hidden backdrop-blur-sm"><div className="absolute top-0 left-0 w-32 h-32 bg-blue-100 rounded-full blur-3xl opacity-30 -ml-10 -mt-10 pointer-events-none"></div>
-              <h2 className="text-xl font-bold text-gray-800 mb-3 flex items-center gap-2">📱 Configuración de Menú Principal (Nivel 1)</h2>
-              
-              <label className="block text-sm font-bold text-gray-700 mb-1 mt-4">Mensaje de Saludo</label>
-              <textarea value={tier1Greeting} onChange={e => setTier1Greeting(e.target.value)} className="w-full border border-gray-200 p-4 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50/50 resize-none transition-all text-sm text-gray-700" rows="3" placeholder="Ej: ¡Hola! Gracias por comunicarte con nosotros..."></textarea>
-              
-              <div className="mt-6 border-t pt-4">
-                  <h3 className="font-bold text-gray-700 mb-2">Opciones del Menú (Botones)</h3>
-                  <div className="flex items-center gap-3 p-4 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-xl text-sm mb-4 font-bold shadow-sm">
-                        <div className="bg-white p-2 rounded-lg shadow-sm">
-                            <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                        </div>
-                        <div>
-                            1. {businessVertical === 'clinic' ? '🩺 Ver Servicios' : (businessVertical === 'lead_gen' ? '📁 Catálogo' : '🛍️ Ver Productos')}
-                            <span className="block text-xs font-normal text-indigo-500/80 mt-0.5">Opción fija del sistema. No se puede editar ni borrar.</span>
-                        </div>
-                    </div>
-                  
-                  {tier1Menu.map((m, idx) => (
-                      <div key={idx} className="flex flex-col md:flex-row gap-3 mb-3 p-4 bg-white rounded-lg border border-gray-200 shadow-sm relative">
-                          <button onClick={() => setDeleteConfirm({ isOpen: true, type: 'menu', index: idx })} className="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full text-xs font-bold hover:bg-red-600">✕</button>
-                          <div className="flex-1">
-                              <label className="text-xs font-bold text-gray-500">Título del Botón</label>
-                              <input type="text" value={m.title} maxLength="24" onChange={e => { let nm = [...tier1Menu]; nm[idx].title = e.target.value; setTier1Menu(nm); }} className="w-full border p-2 rounded outline-none text-sm" placeholder="Ej: Enfermedades" />
-                          </div>
-                                                      <div className="flex-[2]">
-                                <label className="text-xs font-bold text-gray-500">Respuesta del Bot</label>
-                                <input type="text" value={m.response} onChange={e => { let nm = [...tier1Menu]; nm[idx].response = e.target.value; setTier1Menu(nm); }} className="w-full border p-2 rounded outline-none text-sm" placeholder="El texto que el bot responderá al tocar este botón..." />
+                                <div className="flex flex-col gap-4 pr-8">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Título del Botón</label>
+                                        <input type="text" value={m.title} maxLength="24" onChange={e => { let nm = [...tier1Menu]; nm[idx].title = e.target.value; setTier1Menu(nm); }} className="w-full border border-gray-200 p-2.5 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50/50 focus:bg-white transition-colors" placeholder="Ej: Formas de pago" />
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Respuesta del Bot</label>
+                                        <textarea value={m.response} onChange={e => { let nm = [...tier1Menu]; nm[idx].response = e.target.value; setTier1Menu(nm); }} className="w-full border border-gray-200 p-3 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50/50 focus:bg-white resize-none h-24 transition-colors" placeholder="El texto que el bot responderá al tocar este botón..."></textarea>
+                                    </div>
+                                </div>
                                 
-                                <div className="mt-2 flex items-center gap-2">
-                                    <label className="text-xs font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 cursor-pointer px-3 py-1.5 rounded flex items-center gap-1 transition">
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                        Adjuntar Imagen
-                                        <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUploadMenu(idx, e.target.files[0])} />
-                                    </label>
-                                    {m.image_url && (
-                                        <div className="relative group">
-                                            <img src={m.image_url} alt="Adjunto" className="w-8 h-8 object-cover rounded border" />
-                                            <button onClick={() => { let nm = [...tier1Menu]; delete nm[idx].image_url; setTier1Menu(nm); }} className="absolute -top-1 -right-1 bg-red-500 text-white w-4 h-4 rounded-full text-xs font-bold md:opacity-0 md:group-hover:opacity-100 flex items-center justify-center transition">X</button>
-                                        </div>
-                                    )}
+                                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <label className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 cursor-pointer px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                            {m.image_url ? 'Cambiar Imagen' : 'Adjuntar Imagen'}
+                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUploadMenu(idx, e.target.files[0])} />
+                                        </label>
+                                        {m.image_url && (
+                                            <div className="flex items-center gap-2 bg-gray-50 p-1.5 pr-3 rounded-lg border border-gray-200">
+                                                <img src={m.image_url} alt="Adjunto" className="w-8 h-8 object-cover rounded-md" />
+                                                <button onClick={() => { let nm = [...tier1Menu]; delete nm[idx].image_url; setTier1Menu(nm); }} className="text-gray-400 hover:text-red-500 text-xs font-bold px-2 transition-colors">Quitar</button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                      </div>
-                  ))}
-                  <button onClick={handleAddMenu} className="mt-2 text-sm bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg font-bold text-gray-700 transition">+ Añadir Opción</button>
-              </div>
+                        ))}
+                    </div>
+                </div>
+                
+            </div>
 
-              <div className="flex justify-end mt-4">
+                <div className="flex justify-end mt-4">
                   <button onClick={handleSaveConfig} disabled={savingPrompt} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 transition shadow">
                       {savingPrompt ? 'Guardando...' : 'Guardar Menú'}
                   </button>
