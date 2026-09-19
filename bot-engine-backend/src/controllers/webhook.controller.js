@@ -126,7 +126,7 @@ const processWebhookJob = async (body) => {
                         }
 
                         // --- SIMULAR ESCRIBIENDO ---
-                        sendTypingIndicator(phone_number_id, tenant.whatsapp_token, msgObj.id, tenant.id).catch(err => console.error("Typing indicator error:", err));
+                        sendTypingIndicator(phone_number_id, tenant.whatsapp_token, msgObj.id, from, tenant.id).catch(err => console.error("Typing indicator error:", err));
 
                         // 6. Extracción de Contenido del Mensaje
                         let user_message = await extractMessageContent(msgObj, tenant);
