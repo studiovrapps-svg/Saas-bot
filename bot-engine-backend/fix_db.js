@@ -1,0 +1,1 @@
+const pool = require('./src/config/db'); pool.query("UPDATE chat_sessions SET customer_name = 'Sergio' WHERE user_phone = '50231226602' AND tenant_id = 2").then(() => { console.log('Updated DB manually'); process.exit(0); });
