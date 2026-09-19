@@ -193,7 +193,15 @@ async function extractMessageContent(msgObj, tenant) {
             user_message = COPY.AUDIO_ERROR;
         }
     } else if (msgObj.type === 'sticker') {
-        user_message = COPY.STICKER_REJECTED;
+        const ext = (msgObj.sticker.mime_type || 'image/webp').split('/')[1] || 'webp';
+        const buffer = await downloadWhatsAppMedia(msgObj.sticker.id, tenant.whatsapp_token);
+        if (buffer) {
+            const fakeFile = { originalname: `sticker_${Date.now()}.${ext}`, buffer, mimetype: msgObj.sticker.mime_type || 'image/webp' };
+            const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
+            user_message = `[Sticker: ${s3Url}]`;
+        } else {
+            user_message = `[Multimedia adjunto: sticker]`;
+        }
     } else if (msgObj.type === 'location') {
         user_message = `📍 Lat: ${msgObj.location.latitude}, Long: ${msgObj.location.longitude}`;
     } else {

@@ -455,8 +455,8 @@ function ClientDashboard() {
       {/* Sidebar Izquierdo (Modo Claro/Elegante) */}
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="p-6 border-b border-gray-100 flex items-center justify-center">
-          <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain -mt-2 -mb-2" />
+        <div className="px-6 pt-6 pb-2 border-b border-gray-100 flex items-center justify-start">
+          <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain ml-2 -mb-4" />
         </div>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
           <div onClick={() => { setActiveTab('dashboard'); setShowMobileMenu(false); }} className={`${activeTab === 'dashboard' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
@@ -1213,12 +1213,12 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                               {(msg.message_type === 'image' || msg.message_type === 'sticker') ? (
                                                 msg.content && msg.content.startsWith('http') ? (
                                                     <img onClick={() => { setModalImage(msg.content); setImageZoom(1); }} src={msg.content} alt="Imagen" className="rounded-[8px] max-w-full h-auto object-cover max-h-72 block cursor-pointer hover:opacity-95 transition-opacity" />
-                                                ) : (msg.content && msg.content.match(/\[(Imagen|Sticker): (https?:\/\/[^\]]+)\]/)) ? (
+                                                ) : (msg.content && msg.content.match(/\[(Imagen|Imagen adjunta|Sticker): (https?:\/\/[^\]]+)\]/)) ? (
                                                       <>
-                                                          <img onClick={() => { const url = msg.content.match(/\[(Imagen|Sticker): (.*?)\]/)?.[2]; setModalImage(url); setImageZoom(1); }} src={msg.content.match(/\[(Imagen|Sticker): (.*?)\]/)?.[2]} alt="Media Outbound" className={`max-w-full h-auto object-cover block cursor-pointer hover:opacity-95 transition-opacity ${msg.content.includes('[Sticker:') ? 'w-32 h-32 rounded-none bg-transparent' : 'max-h-72 rounded-[8px]'}`} />
+                                                          <img onClick={() => { const url = msg.content.match(/\[(Imagen|Imagen adjunta|Sticker): (.*?)\]/)?.[2]; setModalImage(url); setImageZoom(1); }} src={msg.content.match(/\[(Imagen|Imagen adjunta|Sticker): (.*?)\]/)?.[2]} alt="Media" className={`max-w-full h-auto object-cover block cursor-pointer hover:opacity-95 transition-opacity ${msg.content.includes('[Sticker:') ? 'w-32 h-32 rounded-none bg-transparent' : 'max-h-72 rounded-[8px]'}`} />
                                                           <div className="text-sm px-2 pt-1 pb-2 whitespace-pre-wrap">{
                                                               (() => {
-                                                                  const text = msg.content.replace(/\[(Imagen|Sticker): (.*?)\]\n?/, '');
+                                                                  const text = msg.content.replace(/\[(Imagen|Imagen adjunta|Sticker): (.*?)\]\n?/, '');
                                                                   if (!text) return null;
                                                                   return text.split(/(\*[^*]+\*)/g).map((part, i) => {
                                                                       if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
