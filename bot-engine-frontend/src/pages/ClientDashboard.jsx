@@ -456,7 +456,7 @@ function ClientDashboard() {
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="p-6 border-b border-gray-100">
-          <h1 className="text-xl font-bold tracking-tight text-gray-900">Dynova</h1>
+          <h1 className="text-3xl font-black tracking-tighter text-gray-900">Dynova</h1>
           <p className="text-gray-500 text-xs mt-1 font-semibold tracking-wider uppercase">Workspace</p>
         </div>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
