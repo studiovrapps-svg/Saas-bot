@@ -215,6 +215,7 @@ function ClientDashboard() {
 
   const [systemPrompt, setSystemPrompt] = useState("");
   const [faqs, setFaqs] = useState([{ q: '', a: '' }]);
+    const [faqUploadLoading, setFaqUploadLoading] = useState({});
   const [tier1Greeting, setTier1Greeting] = useState("");
   const [businessVertical, setBusinessVertical] = useState("ecommerce");
   const [currency, setCurrency] = useState("Q");
@@ -289,6 +290,8 @@ function ClientDashboard() {
     const handleUploadFaqImage = async (e, idx) => {
         const file = e.target.files[0];
         if (!file) return;
+        
+        setFaqUploadLoading(prev => ({...prev, [idx]: true}));
         const formData = new FormData();
         formData.append('image', file);
         try {
@@ -301,7 +304,12 @@ function ClientDashboard() {
             } else {
                 alert("Error subiendo imagen: " + (data.error || ""));
             }
-        } catch(err) { console.error(err); alert("Error de red al subir imagen"); }
+        } catch(err) { 
+            console.error(err); 
+            alert("Error de red al subir imagen"); 
+        } finally {
+            setFaqUploadLoading(prev => ({...prev, [idx]: false}));
+        }
     };
 
     const handleImageUploadMenu = async (idx, file) => {
@@ -1664,10 +1672,10 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                       <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Respuesta</label>
                                       <textarea value={faq.a} onChange={e => { const newFaqs = [...faqs]; newFaqs[index].a = e.target.value; setFaqs(newFaqs); }} className="w-full border border-gray-200 p-2 rounded-md outline-none focus:border-black bg-gray-50 resize-y text-sm" rows="3" placeholder="Ej: Aceptamos pago contra entrega..."></textarea></div>
                                     <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2">
-                                        <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-bold py-1 px-3 rounded-md transition-colors flex items-center gap-1">
+                                        <label className={`cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-bold py-1 px-3 rounded-md transition-colors flex items-center gap-1 ${faqUploadLoading[index] ? 'opacity-50 pointer-events-none' : ''}`}>
                                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                                            Subir Imagen
-                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUploadFaqImage(e, index)} />
+                                            {faqUploadLoading[index] ? 'Subiendo...' : 'Subir Imagen'}
+                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleUploadFaqImage(e, index)} disabled={faqUploadLoading[index]} />
                                         </label>
                                         {faq.image_url && (
                                             <div className="flex items-center gap-2 bg-white p-1 pr-2 rounded-lg border border-gray-200 shadow-sm">
