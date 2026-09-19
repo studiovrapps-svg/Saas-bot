@@ -456,7 +456,7 @@ function ClientDashboard() {
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="p-6 border-b border-gray-100">
-          <h1 className="text-xl font-bold tracking-tight text-gray-900">SaaS Bot</h1>
+          <h1 className="text-xl font-bold tracking-tight text-gray-900">Dynova</h1>
           <p className="text-gray-500 text-xs mt-1 font-semibold tracking-wider uppercase">Workspace</p>
         </div>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
@@ -1498,7 +1498,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                         <p className="text-sm text-gray-600 mb-4 relative z-10">Comparte este enlace con tus prospectos. Si se registran usándolo, recibirás una comisión mensual mientras mantengan su suscripción activa.</p>
                         
                         <div className="flex flex-col md:flex-row gap-3 relative z-10">
-                            <input type="text" readOnly value="https://saas-bot.neofenix.dev/registro?ref=PROXIMAMENTE" className="flex-1 bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none" />
+                            <input type="text" readOnly value="https://dynova.neofenix.dev/registro?ref=PROXIMAMENTE" className="flex-1 bg-gray-50 border border-gray-300 text-gray-700 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none" />
                             <button className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2.5 px-6 rounded-lg transition-colors cursor-not-allowed">
                                 Copiar Enlace
                             </button>
