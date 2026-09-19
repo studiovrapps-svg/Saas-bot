@@ -29,7 +29,7 @@ async function sendWhatsAppMenu(phone_number_id, token, to, tenant_id, tenant_na
                 interactive: {
                     type: `list`, header: { type: `text`, text: (`Menú de ${tenant_name}`).substring(0, 60) },
                     body: { text: `Selecciona el producto que deseas pedir o consultar:` },
-                    footer: { text: `SaaS Bot Engine` },
+                    footer: { text: `Dynova` },
                     action: { button: vertical === 'clinic' ? 'Ver Servicios 🩺' : 'Ver Catálogo 🛍️', sections: [{ title: vertical === 'clinic' ? 'Servicios Disponibles' : 'Productos Disponibles', rows: rows }] }
                 }
             };

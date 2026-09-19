@@ -539,7 +539,7 @@ async function handleClinicFlow(tenant, phone_number_id, from, msgObj, user_mess
         interactive: {
             type: 'list', header: { type: 'text', text: 'Menú Principal' },
             body: { text: greetingText },
-            footer: { text: 'SaaS Bot Engine' },
+            footer: { text: 'Dynova' },
             action: { button: 'Opciones', sections: [{ title: 'Selecciona una opción', rows: rows }] }
         }
     };
