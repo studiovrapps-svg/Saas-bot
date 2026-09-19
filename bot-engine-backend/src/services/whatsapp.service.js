@@ -209,7 +209,6 @@ async function sendTypingIndicator(phone_number_id, token, message_id, to_phone,
     } catch (error) {
         console.error(`Error enviando typing indicator:`, error);
     }
-}
-}
+} 
 
 module.exports = { sendWhatsAppTemplate, logMessage, sendWhatsAppMenu, sendWhatsAppText, sendInteractiveButtons, downloadWhatsAppMedia, sendWhatsAppImage, sendTypingIndicator };
