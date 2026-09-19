@@ -192,44 +192,24 @@ async function sendWhatsAppImage(phone_number_id, token, to, imageUrl, caption =
 
 async function sendTypingIndicator(phone_number_id, token, message_id, to_phone, tenant_id = null) {
     try {
-        // Enviar "leído" primero
-        const readPayload = {
+        // Enviar "leído" y "escribiendo" al mismo tiempo (como lo exige la API Cloud v20+)
+        const payload = {
             messaging_product: "whatsapp",
+            status: "read",
             message_id: message_id,
-            status: "read"
+            to: to_phone,
+            typing_indicator: { type: "text" }
         };
+        
         await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(readPayload)
+            body: JSON.stringify(payload)
         });
-
-        // La API de WhatsApp Cloud en 2026 / reciente permite este endpoint para el typing
-        // Ya que el usuario verificó que es posible
-        // O puede ser un "sender_action": "typing_on" 
-        // O usando el mismo endpoint pero con "type": "typing_indicator".
-        // Vamos a probar enviando la versión documentada en los buscadores.
-        const typingPayload = {
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to: to_phone,
-            type: "typing_indicator", // a veces es un sender_action, a veces es type: typing_indicator.
-            // enviaré ambas para estar seguro.
-            sender_action: "typing_on"
-        };
-        const response = await fetch(`https://graph.facebook.com/v19.0/${phone_number_id}/messages`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(typingPayload)
-        });
-        const resText = await response.text();
-        if(!response.ok) {
-            // Some newer API versions use a different schema, but typically it doesn't crash the bot if it fails.
-            // console.error("Typing API warning:", resText);
-        }
     } catch (error) {
         console.error(`Error enviando typing indicator:`, error);
     }
+}
 }
 
 module.exports = { sendWhatsAppTemplate, logMessage, sendWhatsAppMenu, sendWhatsAppText, sendInteractiveButtons, downloadWhatsAppMedia, sendWhatsAppImage, sendTypingIndicator };
