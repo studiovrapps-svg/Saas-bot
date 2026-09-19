@@ -1,5 +1,4 @@
 const pool = require('../config/db');
-const fetch = require('node-fetch');
 
 const processTelegramWebhook = async (req, res) => {
     try {

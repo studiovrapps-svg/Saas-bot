@@ -1,5 +1,4 @@
-﻿const fetch = require('node-fetch');
-const pool = require('../config/db');
+﻿const pool = require('../config/db');
 
 async function sendTelegramAlert(tenant_id, text) {
     if (!process.env.TELEGRAM_BOT_TOKEN) return false;
