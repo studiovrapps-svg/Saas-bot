@@ -28,8 +28,8 @@ async function generateEmbedding(text, taskType = TaskType.RETRIEVAL_DOCUMENT) {
 /**
  * Sync a product to the knowledge base (Called when a product is created/updated)
  */
-async function upsertProductKnowledge(tenantId, productId, name, description, price) {
-    const content = `Producto: ${name}\nPrecio: USD ${price}\nDescripción: ${description || 'Sin descripción'}`;
+async function upsertProductKnowledge(tenantId, productId, name, description, price, currency = 'USD') {
+    const content = `Producto: ${name}\nPrecio: ${currency} ${price}\nDescripción: ${description || 'Sin descripción'}`;
     const embedding = await generateEmbedding(content, TaskType.RETRIEVAL_DOCUMENT);
     
     // Formatting the vector array for PostgreSQL pgvector

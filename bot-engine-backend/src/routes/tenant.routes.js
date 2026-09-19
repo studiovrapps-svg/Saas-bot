@@ -34,6 +34,7 @@ router.get('/tenant/:id/stats', tenantController.getStats);
 router.put('/tenant/:id/config', tenantController.updateTenantConfig);
 router.post('/tenant/:id/upload', upload.single('image'), tenantController.uploadMenuImage);
 router.post('/tenant/:id/meta-connect', tenantController.metaConnect);
+router.post('/tenant/:id/sync-profile', tenantController.syncProfile);
 
 const orderController = require('../controllers/order.controller');
 router.get('/tenant/:id/orders', orderController.getOrders);

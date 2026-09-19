@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secreto-saas-2026';
 
 const requireAuth = (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -9,7 +8,7 @@ const requireAuth = (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         req.user = decoded; // { role: 'tenant', tenant_id: 1 } or { role: 'superadmin' }
         next();
     } catch (error) {
@@ -32,10 +31,8 @@ const restrictToSelf = async (req, res, next) => {
     const url = req.originalUrl.split('?')[0];
     const parts = url.split('/');
 
-    // Bypass for multipart/form-data (Multer hasn't parsed the body yet, controllers validate it inside)
-    if (req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data')) {
-        return next();
-    }
+    // Ya NO hacemos bypass para multipart/form-data globalmente.
+    // Multer no ha parseado el body, pero SI podemos validar req.params extraídos de la URL.
 
     // 1. Direct tenant routes: /api/tenant/:id
     if (url.startsWith('/api/tenant/')) {

@@ -7,6 +7,9 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
+  max: 20, // max number of clients in the pool
+  idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
+  connectionTimeoutMillis: 2000, // return an error after 2 seconds if connection could not be established
   ssl: { rejectUnauthorized: false } // Requerido para conectarse a AWS de forma externa
 });
 

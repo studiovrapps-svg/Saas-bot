@@ -6,6 +6,11 @@ class TenantRepository {
         return result.rows.length > 0 ? result.rows[0] : null;
     }
 
+    async getTenantById(tenant_id) {
+        const result = await pool.query('SELECT * FROM tenants WHERE id = $1', [tenant_id]);
+        return result.rows.length > 0 ? result.rows[0] : null;
+    }
+
     async getBusinessRules(tenant_id) {
         const result = await pool.query('SELECT business_rules FROM tenants WHERE id = $1', [tenant_id]);
         if (result.rows.length > 0 && result.rows[0].business_rules) {

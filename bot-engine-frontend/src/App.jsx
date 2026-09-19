@@ -8,19 +8,34 @@ import ClientDashboard from './pages/ClientDashboard';
 const originalFetch = window.fetch;
 window.fetch = async function () {
     let [resource, config] = arguments;
-    if (typeof resource === 'string' && resource.includes('/api/')) {
+    
+    let url = typeof resource === 'string' ? resource : (resource instanceof Request ? resource.url : '');
+    
+    if (url.includes('/api/')) {
         config = config || {};
-        config.headers = config.headers || {};
+        
         const token = localStorage.getItem('token');
         if (token) {
-            config.headers['Authorization'] = `Bearer ${token}`;
+            if (config.headers instanceof Headers) {
+                config.headers.set('Authorization', `Bearer ${token}`);
+            } else if (resource instanceof Request) {
+                resource.headers.set('Authorization', `Bearer ${token}`);
+            } else {
+                config.headers = config.headers || {};
+                config.headers['Authorization'] = `Bearer ${token}`;
+            }
         }
     }
+    
     const response = await originalFetch.apply(this, [resource, config]);
-    if ((response.status === 401 || response.status === 403) && typeof resource === 'string' && resource.includes('/api/') && !resource.includes('/api/login')) {
-        localStorage.clear();
-        window.location.href = '/';
+    
+    if (response.status === 401 && url.includes('/api/') && !url.includes('/api/login')) {
+        if (localStorage.getItem('token')) {
+            localStorage.clear();
+            window.location.href = '/';
+        }
     }
+    
     return response;
 };
 

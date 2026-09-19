@@ -23,7 +23,7 @@ const createProduct = async (req, res) => {
         
         const result = await pool.query(
             'INSERT INTO products (tenant_id, name, description, price, image_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-            [tenant_id, name, description, price, imageUrl]
+            [tenant_id, name, description, validPrice, imageUrl]
         );
         
         // RAG Sync (Opcional, no bloquea el request)
@@ -47,35 +47,41 @@ const updateProduct = async (req, res) => {
         if (isNaN(validPrice) || validPrice < 0) return res.status(400).json({ error: 'El importe (USD) debe ser un número válido.' });
 
         const isSuperAdmin = req.user && req.user.role === 'superadmin';
-        const tenantCondition = isSuperAdmin ? '' : `AND tenant_id = ${req.user.tenant_id}`;
+        const uTenantId = req.user.tenant_id;
+
+        let oldImageUrl = null;
+        let finalTenantId = null;
+
+        let currentProd;
+        if (isSuperAdmin) {
+            currentProd = await pool.query('SELECT image_url, tenant_id FROM products WHERE id = $1', [id]);
+        } else {
+            currentProd = await pool.query('SELECT image_url, tenant_id FROM products WHERE id = $1 AND tenant_id = $2', [id, uTenantId]);
+        }
+
+        if (currentProd.rows.length === 0) return res.status(403).json({ error: 'Unauthorized or not found' });
+        finalTenantId = currentProd.rows[0].tenant_id;
+        oldImageUrl = currentProd.rows[0].image_url;
 
         if (file) {
-            const pResult = await pool.query(`SELECT image_url FROM products WHERE id = $1 ${tenantCondition}`, [id]);
-            if (pResult.rows.length > 0) {
-                await deleteImage(pResult.rows[0].image_url);
-            } else if (!isSuperAdmin) {
-                return res.status(403).json({ error: 'Unauthorized' });
-            }
             const imageUrl = await uploadImage(file, `catalogo/edits`);
             await pool.query(
-                `UPDATE products SET name = $1, description = $2, price = $3, image_url = $4 WHERE id = $5 ${tenantCondition}`,
-                [name, description, price, imageUrl, id]
+                `UPDATE products SET name = $1, description = $2, price = $3, image_url = $4 WHERE id = $5`,
+                [name, description, validPrice, imageUrl, id]
             );
+            if (oldImageUrl) {
+                await deleteImage(oldImageUrl).catch(e => console.error("Error borrando imagen vieja:", e));
+            }
         } else {
-            const uResult = await pool.query(
-                `UPDATE products SET name = $1, description = $2, price = $3 WHERE id = $4 ${tenantCondition}`,
-                [name, description, price, id]
+            await pool.query(
+                `UPDATE products SET name = $1, description = $2, price = $3 WHERE id = $4`,
+                [name, description, validPrice, id]
             );
-            if (uResult.rowCount === 0 && !isSuperAdmin) return res.status(403).json({ error: 'Unauthorized' });
         }
         
         // RAG Sync (Opcional, no bloquea el request)
         try {
-            // Obtenemos el tenant_id real de la BD en lugar del body para evitar fallos si no se envia
-            const tResult = await pool.query('SELECT tenant_id FROM products WHERE id = $1', [id]);
-            if (tResult.rows.length > 0) {
-                await ragService.upsertProductKnowledge(tResult.rows[0].tenant_id, id, name, description, validPrice);
-            }
+            await ragService.upsertProductKnowledge(finalTenantId, id, name, description, validPrice);
         } catch (ragErr) {
             console.error("Error RAG sync on update:", ragErr);
         }
@@ -88,20 +94,22 @@ const deleteProduct = async (req, res) => {
     try {
         const { id } = req.params;
         const isSuperAdmin = req.user && req.user.role === 'superadmin';
-        const tenantCondition = isSuperAdmin ? '' : `AND tenant_id = ${req.user.tenant_id}`;
+        const uTenantId = req.user.tenant_id;
 
-        const pResult = await pool.query(`SELECT image_url FROM products WHERE id = $1 ${tenantCondition}`, [id]);
+        let pResult;
+        if (isSuperAdmin) {
+            pResult = await pool.query('DELETE FROM products WHERE id = $1 RETURNING image_url, tenant_id', [id]);
+        } else {
+            pResult = await pool.query('DELETE FROM products WHERE id = $1 AND tenant_id = $2 RETURNING image_url, tenant_id', [id, uTenantId]);
+        }
+
         if (pResult.rows.length > 0) {
             await deleteImage(pResult.rows[0].image_url);
-            await pool.query(`DELETE FROM products WHERE id = $1 ${tenantCondition}`, [id]);
-            // RAG Sync Delete
             try {
-                const tId = isSuperAdmin ? req.body.tenant_id : req.user.tenant_id;
-                if (tId) await ragService.deleteProductKnowledge(tId, id);
+                await ragService.deleteProductKnowledge(pResult.rows[0].tenant_id, id);
             } catch (ragErr) {
                 console.error("Error RAG sync on delete:", ragErr);
             }
-    
             res.json({ message: `Producto eliminado` });
         } else {
             return res.status(403).json({ error: 'Unauthorized or not found' });

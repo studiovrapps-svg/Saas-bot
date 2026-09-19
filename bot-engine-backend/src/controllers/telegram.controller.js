@@ -2,6 +2,12 @@ const pool = require('../config/db');
 
 const processTelegramWebhook = async (req, res) => {
     try {
+        const secretToken = req.headers['x-telegram-bot-api-secret-token'];
+        if (secretToken !== (process.env.TELEGRAM_WEBHOOK_SECRET || 'dynova_super_secret')) {
+            console.warn('Telegram webhook auth failed');
+            return res.sendStatus(403);
+        }
+
         const body = req.body;
         
         if (body.message && body.message.text) {

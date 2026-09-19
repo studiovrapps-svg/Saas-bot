@@ -1,18 +1,24 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secreto-saas-2026';
+const crypto = require('crypto');
 
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@admin.com';
+        const adminEmail = process.env.ADMIN_EMAIL;
         const adminPass = process.env.ADMIN_PASSWORD;
 
-        if (email === adminEmail) {
+        if (adminEmail && email === adminEmail) {
             if (!adminPass) return res.status(500).json({ error: 'Configuración crítica faltante (ADMIN_PASSWORD)' });
-            if (password === adminPass) {
-                return res.json({ token: jwt.sign({ role: 'superadmin' }, JWT_SECRET, { expiresIn: '8h' }), role: 'superadmin' });
+            
+            const reqPassBuffer = Buffer.from(password || '');
+            const adminPassBuffer = Buffer.from(adminPass);
+            
+            if (reqPassBuffer.length === adminPassBuffer.length && crypto.timingSafeEqual(reqPassBuffer, adminPassBuffer)) {
+                return res.json({ token: jwt.sign({ role: 'superadmin' }, process.env.JWT_SECRET, { expiresIn: '8h' }), role: 'superadmin' });
+            } else {
+                return res.status(401).json({ error: 'Credenciales inválidas' });
             }
         }
         
@@ -22,7 +28,7 @@ const login = async (req, res) => {
         if (!tenant.is_active) return res.status(403).json({ error: `Cuenta suspendida` });
         const match = await bcrypt.compare(password, tenant.password);
         if (!match) return res.status(401).json({ error: `Credenciales inválidas` });
-        const token = jwt.sign({ role: 'tenant', tenant_id: tenant.id }, JWT_SECRET, { expiresIn: '8h' });
+        const token = jwt.sign({ role: 'tenant', tenant_id: tenant.id }, process.env.JWT_SECRET, { expiresIn: '8h' });
         res.json({ token, role: 'tenant', tenant_id: tenant.id, name: tenant.name });
     } catch (error) { 
         console.error("Login error:", error);

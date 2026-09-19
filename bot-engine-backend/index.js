@@ -1,9 +1,18 @@
+require('dotenv').config(); // MUST BE FIRST
+
 const { startQueue, boss } = require('./src/config/queue');
-require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const socketConfig = require('./src/config/socket');
 const cors = require('cors');
+const pool = require('./src/config/db');
+
+// Fail-Fast: Validar variables de entorno críticas
+const requiredEnvVars = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'JWT_SECRET', 'META_APP_SECRET', 'WHATSAPP_VERIFY_TOKEN'];
+const missingVars = requiredEnvVars.filter(v => !process.env[v]);
+if (missingVars.length > 0) {
+    console.warn(`?? ADVERTENCIA: Faltan variables de entorno críticas: ${missingVars.join(', ')}. El sistema podría fallar.`);
+}
 
 const authRoutes = require('./src/routes/auth.routes');
 const tenantRoutes = require('./src/routes/tenant.routes');
@@ -18,10 +27,23 @@ const { requireAuth, restrictToSelf } = require('./src/middlewares/auth.middlewa
 
 const app = express();
 app.set('trust proxy', 1); // Necesario para que express-rate-limit funcione detrás de proxies (Netlify/Railway)
+
+const allowedOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    'http://localhost:3000'
+];
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: function(origin, callback) {
+        if (!origin || allowedOrigins.some(o => origin.startsWith(o))) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true
 }));
+
 app.use(express.json({
     verify: (req, res, buf) => {
         req.rawBody = buf;
@@ -45,6 +67,11 @@ app.use('/api/billing', billingRoutes);
 app.use('/webhook', webhookRoutes);
 app.use('/api/telegram', require('./src/routes/telegram.routes'));
 
+// Global Error Handler
+app.use((err, req, res, next) => {
+    console.error('?? Error global capturado:', err);
+    res.status(err.status || 500).json({ error: 'Error interno del servidor.' });
+});
 
 const PORT = process.env.PORT || 3000;
 // Arranque secuencial: garantizar cola antes de aceptar tráfico
@@ -56,7 +83,7 @@ const PORT = process.env.PORT || 3000;
         process.exit(1); // Fail-Fast: Matar el proceso si la cola no levanta
     }
     
-        const server = http.createServer(app);
+    const server = http.createServer(app);
     socketConfig.init(server); // Inicializar WebSockets
 
     server.listen(PORT, () => {
@@ -67,12 +94,21 @@ const PORT = process.env.PORT || 3000;
     });
 })();
 
-// Graceful Shutdown para pg-boss
+// Control asíncrono y fallos críticos
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('?? Rechazo de promesa no controlado:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('?? Excepción no capturada (Mortal):', err);
+    shutdown();
+});
+
+// Graceful Shutdown
 const shutdown = async () => {
-    console.log("Cerrando colas de pg-boss de forma segura...");
+    console.log("Cerrando servicios de forma segura...");
     if (boss) await boss.stop({ graceful: true, timeout: 10000 });
+    if (pool) await pool.end();
     process.exit(0);
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-

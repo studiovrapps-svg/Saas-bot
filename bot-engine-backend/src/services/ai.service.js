@@ -1,7 +1,8 @@
 const Groq = require('groq-sdk');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const { searchRelevantContext } = require('./rag.service');
-const { sendWhatsAppText, sendWhatsAppImage, logMessage } = require('./whatsapp.service');
+const { sendWhatsAppText, sendWhatsAppImage } = require('./whatsapp.service');
+const { sendTelegramAlert, escapeHTML } = require('./telegram.service');
 const { toFile } = require('groq-sdk/uploads');
 
 // Repositories & Config
@@ -12,36 +13,66 @@ const productRepo = require('../repositories/product.repository');
 const messageRepo = require('../repositories/message.repository');
 const { AI_PRICING, COPY, HANDOFF_SILENCE_DURATION_MS } = require('../config/constants');
 
-const chatCache = new Map();
-
 async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
     try {
+        // 1. Cargar Datos del Tenant
+        const tenant = await tenantRepo.getTenantById(tenant_id);
+        if (!tenant) throw new Error("Tenant no encontrado en la base de datos.");
+
         const rules = await tenantRepo.getBusinessRules(tenant_id);
         const rulesText = rules.length > 0 
-            ? "REGLAS DE NEGOCIO ESTRICTAS:\n" + rules.map(r => `- Si el usuario pregunta "${r.q}", RESPONDE EXACTAMENTE: "${r.a}"`).join('\n') 
+            ? "\n\nREGLAS DE NEGOCIO ESTRICTAS:\n" + rules.map(r => `- Si el usuario pregunta "${r.q}", RESPONDE EXACTAMENTE: "${r.a}"`).join('\n') 
             : "";
         
-        let sysPrompt = `Eres un asistente de ventas profesional. Responde de forma concisa y amigable. Si no sabes algo, no inventes. Puedes usar emojis. Nunca ofrezcas productos que no estén en el catálogo provisto.\n${rulesText}`;
+        let sysPrompt = tenant.system_prompt || "Eres un asistente de ventas profesional.";
+        sysPrompt += `\n\nCONTEXTO DEL NEGOCIO:\n- Nombre: ${tenant.name}\n- Vertical: ${tenant.business_vertical || 'Retail'}\n- Moneda: ${tenant.currency || 'USD'}`;
+        sysPrompt += rulesText;
+        sysPrompt += `\n\nIMPORTANTE: Los precios recuperados de la base de conocimientos pueden mostrar "USD", pero siempre asume que la cifra numérica ya es el precio final en la moneda oficial del negocio (${tenant.currency || 'USD'}). Muéstralo usando su símbolo correcto.`;
 
-        const ragContext = await searchRelevantContext(tenant_id, text);
+        // 2. Cargar Historial de Base de Datos
+        const dbHistory = await messageRepo.getRecentMessagesForAI(tenant_id, to, 8);
+
+        // QA FIX: Evitar duplicación del mensaje actual del usuario si ya está en DB (por concurrencia de inserción)
+        const lastMsg = dbHistory.length > 0 ? dbHistory[dbHistory.length - 1] : null;
+        const isMsgAlreadyInHistory = lastMsg && lastMsg.role === 'user' && lastMsg.content === text;
+
+        // 3. RAG y Fallbacks
+        let ragContext = await searchRelevantContext(tenant_id, text);
+        
+        // QA FIX: Filtrar por similitud mínima para que el fallback del catálogo pueda activarse
+        if (ragContext && ragContext.length > 0) {
+            ragContext = ragContext.filter(d => d.similarity === undefined || d.similarity > 0.15);
+        }
+        
+        if (!ragContext || ragContext.length === 0) {
+            const defaultCatalog = await productRepo.getCatalog(tenant_id, 10);
+            if (defaultCatalog && defaultCatalog.length > 0) {
+                ragContext = defaultCatalog.map(p => ({
+                    reference_id: p.id,
+                    content: `Producto: ${p.name}\nPrecio: ${p.price}\nDescripción: ${p.description || 'N/A'}`
+                }));
+            }
+        }
+
         let contextMsg = "";
         if (ragContext && ragContext.length > 0) {
             contextMsg = "INFORMACIÓN RECUPERADA DE LA BASE DE CONOCIMIENTOS (CATÁLOGO/DOCS):\n";
             ragContext.forEach(doc => {
-                contextMsg += `- [ID: ${doc.metadata?.product_id || 'N/A'}] ${doc.content}\n`;
+                contextMsg += `- [ID: ${doc.reference_id || 'N/A'}] ${doc.content}\n`;
             });
-            contextMsg += "\nUsa esta información para responder al usuario. Si el usuario pide comprar un producto que está en la base de conocimientos, ofrece usar la herramienta create_order indicando los nombres de los productos y la cantidad. Si la información no es suficiente, informa amablemente.\n";
-            contextMsg += "INSTRUCCIÓN ESPECIAL PARA IMÁGENES: Si la información contiene el ID de un producto, y es útil para la venta, incluye en tu respuesta exactamente este texto: [IMG_<ID_DEL_PRODUCTO>] donde <ID_DEL_PRODUCTO> es el número de ID. El sistema lo reemplazará por la foto real.";
+            contextMsg += "\nUsa esta información para responder al usuario. Si el usuario pide comprar un producto que está en la base de conocimientos, ofrece usar la herramienta create_order indicando los nombres exactos y cantidad.";
+            contextMsg += "\nINSTRUCCIÓN ESPECIAL PARA IMÁGENES: Si la información contiene el ID de un producto, y consideras que enviar una foto ayudaría a la venta, incluye en tu respuesta este texto exacto: [IMG_<ID>] donde <ID> es el número de ID (ejemplo: [IMG_45]). El sistema reemplazará ese código por la foto real.";
         }
 
-        const cacheKey = `chat_${tenant_id}_${to}`;
-        if (!chatCache.has(cacheKey)) { chatCache.set(cacheKey, []); }
-        const history = chatCache.get(cacheKey);
-
-        history.push({ role: "user", content: contextMsg ? `Contexto:\n${contextMsg}\n\nMensaje del usuario: ${text}` : text });
-        if (history.length > 8) history.shift();
-
-        const messages = [{ role: "system", content: sysPrompt }, ...history];
+        // 4. Preparar Mensajes para el LLM
+        const messages = [];
+        messages.push({ role: "system", content: sysPrompt + (contextMsg ? `\n\n${contextMsg}` : "") });
+        messages.push(...dbHistory);
+        
+        // Inyectamos el mensaje actual del usuario solo si no fue precargado en la base de datos en este ms
+        if (!isMsgAlreadyInHistory) {
+            messages.push({ role: "user", content: text });
+        }
 
         const tools = [
             {
@@ -79,16 +110,25 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
             }
         ];
 
-        const completion = await groq.chat.completions.create({
-            messages: messages,
-            model: "llama-3.1-70b-versatile",
-            temperature: 0.3,
-            max_tokens: 500,
-            tools: tools,
-            tool_choice: "auto"
-        });
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000); // 12 segundos máximo
+        
+        let completion;
+        try {
+            completion = await groq.chat.completions.create({
+                messages: messages,
+                model: "llama-3.3-70b-versatile",
+                temperature: 0.3,
+                max_tokens: 500,
+                tools: tools,
+                tool_choice: "auto"
+            }, { signal: controller.signal });
+            clearTimeout(timeout);
+        } catch (apiErr) {
+            clearTimeout(timeout);
+            throw apiErr; 
+        }
 
-        // Billing
         const pTokens = completion.usage?.prompt_tokens || 0;
         const cTokens = completion.usage?.completion_tokens || 0;
         const costUsd = (pTokens / 1000000 * AI_PRICING.PROMPT_TOKENS_PER_MILLION) + (cTokens / 1000000 * AI_PRICING.COMPLETION_TOKENS_PER_MILLION);
@@ -103,9 +143,9 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                     try {
                         const args = JSON.parse(toolCall.function.arguments);
                         if (!args.items || args.items.length === 0) {
-                            finalResponseText += `\n\n📝 Necesito saber exactamente qué productos deseas comprar. Por favor, indícame los nombres y cantidades.`;
+                            finalResponseText += `\n\n¿Qué productos deseas comprar? Indícame los nombres y cantidades.`;
                         } else if (!args.delivery_address || args.delivery_address.trim().length < 4) {
-                            finalResponseText += `\n\n📍 Para registrar tu pedido, por favor bríndame tu dirección de entrega completa.`;
+                            finalResponseText += `\n\nPara registrar tu pedido, por favor bríndame tu dirección de entrega completa.`;
                         } else {
                             let validatedItems = [];
                             if (Array.isArray(args.items)) {
@@ -118,7 +158,12 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                                         const qty = parseInt(item.quantity, 10);
                                         if (qty <= 0 || qty > 999) continue;
                                         const itemLow = item.product.toLowerCase().trim();
-                                        const dbProd = productsFound.find(p => p.name.toLowerCase().includes(itemLow));
+                                        
+                                        // QA FIX: Validación bidireccional del nombre del producto
+                                        const dbProd = productsFound.find(p => {
+                                            const dbLow = p.name.toLowerCase().trim();
+                                            return dbLow.includes(itemLow) || itemLow.includes(dbLow);
+                                        });
                                         
                                         if (dbProd) {
                                             validatedItems.push({ product: dbProd.name, quantity: qty, price: dbProd.price });
@@ -127,7 +172,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                                 }
                             }
                             if (validatedItems.length === 0) {
-                                finalResponseText += `\n\nLo siento, no pude validar los productos o cantidades en tu carrito. Por favor, intenta de nuevo.`;
+                                finalResponseText += `\n\nLo siento, no pude validar los productos en tu carrito. Intenta con los nombres exactos del catálogo.`;
                             } else {
                                 let cartText = validatedItems.map(i => `${i.quantity}x ${i.product}`).join(', ');
                                 await orderRepo.createOrder(tenant_id, to, validatedItems, args.delivery_address);
@@ -137,25 +182,31 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
                                 let total = 0;
                                 let cartSummaryAlert = validatedItems.map(item => {
                                     total += (item.price * item.quantity);
-                                    return `🛍️ ${item.quantity}x ${item.product}`;
+                                    return `🛒 ${item.quantity}x ${item.product}`;
                                 }).join('\n');
-                                const { sendTelegramAlert, escapeHTML } = require('./telegram.service');
-                                sendTelegramAlert(tenant_id, `🚨 <b>NUEVO PEDIDO (Tier 2 - IA)</b> 🚨\n\n<b>Teléfono:</b> ${to}\n<b>Dirección:</b> ${escapeHTML(args.delivery_address)}\n\n<b>Productos:</b>\n${escapeHTML(cartSummaryAlert)}\n\n💰 <b>Total:</b> Q${total.toFixed(2)}`).catch(e => console.error(e));
+                                sendTelegramAlert(tenant_id, `✅ <b>NUEVO PEDIDO (Tier 2 - IA)</b> ✅\n\n<b>Teléfono:</b> ${to}\n<b>Dirección:</b> ${escapeHTML(args.delivery_address)}\n\n<b>Productos:</b>\n${escapeHTML(cartSummaryAlert)}\n\n💰 <b>Total:</b> ${tenant.currency || 'USD'} ${total.toFixed(2)}`).catch(e => console.error(e));
                                 // ----------------------
                             }
                         }
-                    } catch(e) { console.error("Error parsing create_order args", e); }
+                    } catch(e) { 
+                        console.error("Error parsing create_order args", e); 
+                        if (!finalResponseText) finalResponseText = "Lo siento, tuve problemas procesando tu pedido. Por favor, intenta de nuevo.";
+                    }
                 } else if (toolCall.function.name === 'transfer_to_human') {
                     const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
                     await sessionRepo.setHumanStatus(tenant_id, to, mutedTimestamp);
                     finalResponseText += `\n\n${COPY.HANDOFF_INITIATED}`;
                     
                     // --- TELEGRAM ALERT ---
-                    const { sendTelegramAlert, escapeHTML } = require('./telegram.service');
-                    sendTelegramAlert(tenant_id, `⚠️ <b>NUEVO LEAD / ASISTENCIA</b> ⚠️\n\n<b>Teléfono:</b> ${to}\n\nUn cliente ha solicitado atención humana. El bot se ha pausado. Revisa WhatsApp para atenderlo.`).catch(e => console.error(e));
+                    sendTelegramAlert(tenant_id, `⚠️ <b>NUEVO LEAD / ASISTENCIA</b> ⚠️\n\n<b>Teléfono:</b> ${to}\n\nUn cliente ha solicitado atención humana. El bot se ha pausado por 2 horas para este usuario.`).catch(e => console.error(e));
                     // ----------------------
                 }
             }
+        }
+        
+        // QA FIX: Fallback si todo falla y finalResponseText está vacío
+        if (!finalResponseText || finalResponseText.trim().length === 0) {
+            finalResponseText = "¿Podrías aclararme o darme más detalles sobre eso, por favor?";
         }
 
         if (finalResponseText) {
@@ -170,27 +221,31 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id) {
             
             textToSend = textToSend.trim();
             if (textToSend.length > 0) {
-                await sendWhatsAppText(phone_number_id, token, to, textToSend, tenant_id);
-                history.push({ role: "assistant", content: textToSend });
+                await sendWhatsAppText(phone_number_id, token, to, textToSend, tenant_id).catch(e => console.error("Fallo al enviar msj principal:", e));
             }
 
             if (imagesToSend.length > 0) {
                 try {
                     const productsFound = await productRepo.findProductsByIds(tenant_id, imagesToSend);
-                    await Promise.all(productsFound.map(async (p) => {
+                    // QA FIX: Iterar secuencialmente para que Meta no desordene las imágenes en WhatsApp
+                    for (const p of productsFound) {
                         if (p && p.image_url) {
                             try {
-                                const caption = `[Imagen: ${p.image_url}]\n${p.name}`;
+                                // QA FIX: Caption más limpio, sin la URL raw
+                                const caption = p.name;
                                 await sendWhatsAppImage(phone_number_id, token, to, p.image_url, caption, tenant_id);
                             } catch(err) { console.error("Error enviando imagen", err); }
                         }
-                    }));
+                    }
                 } catch(e) { console.error("Error en batch imágenes", e); }
             }
         }
     } catch (error) {
         console.error(`Error AI:`, error);
-        await sendWhatsAppText(phone_number_id, token, to, "Lo siento, estoy experimentando dificultades técnicas en este momento. Por favor intenta de nuevo más tarde.", tenant_id);
+        
+        sendTelegramAlert(tenant_id, `⚠️ <b>FALLO DE IA DETECTADO</b> ⚠️\n\n<b>Teléfono:</b> ${to}\nEl sistema de IA falló (posible timeout/saturación de Groq). No se ha silenciado el bot, pero el cliente recibió un mensaje de error.`).catch(e => console.error(e));
+
+        await sendWhatsAppText(phone_number_id, token, to, "Tuve un pequeño problema técnico procesando tu mensaje. ¿Podrías repetirlo por favor?", tenant_id).catch(e => console.error("Fallo msj contingencia:", e));
     }
 }
 
@@ -204,7 +259,7 @@ async function transcribeAudio(buffer, tenant_id = null) {
             response_format: "verbose_json"
         });
         if (tenant_id && completion.duration) {
-            const costUsd = completion.duration * 0.0001; // Whisper API cost ~$0.006 / minute = $0.0001 per second
+            const costUsd = completion.duration * 0.0001;
             await messageRepo.logUsage(tenant_id, 0, 0, costUsd);
         }
         return completion.text;
@@ -214,4 +269,4 @@ async function transcribeAudio(buffer, tenant_id = null) {
     }
 }
 
-module.exports = { sendWhatsAppAI, chatCache, transcribeAudio };
+module.exports = { sendWhatsAppAI, transcribeAudio };

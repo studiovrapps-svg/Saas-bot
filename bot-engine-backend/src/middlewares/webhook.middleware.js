@@ -22,7 +22,10 @@ const verifyMetaSignature = (req, res, next) => {
     hmac.update(req.rawBody);
     const expectedSignature = `sha256=${hmac.digest('hex')}`;
 
-    if (signature !== expectedSignature) {
+    const sigBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
         console.warn('Bloqueado: Firma de Webhook de Meta inválida.');
         return res.sendStatus(403);
     }

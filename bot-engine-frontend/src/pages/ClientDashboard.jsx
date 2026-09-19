@@ -2,35 +2,14 @@ import { io } from 'socket.io-client';
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams, useNavigate } from 'react-router-dom';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import CustomSelect from '../components/CustomSelect';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 function ClientDashboard() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
     const { tenantId } = useParams();
   
-  useEffect(() => {
-      const socketUrl = API_URL.replace('/api', '');
-      const socket = io(socketUrl, { withCredentials: true });
-      
-      socket.on('connect', () => {
-          socket.emit('join_tenant_room', tenantId);
-      });
-      
-      socket.on('new_message', (data) => {
-          fetchChats();
-          if (activeChatRef.current && activeChatRef.current.user_phone === data.phone) {
-              fetchMessages();
-          }
-      });
-      
-      socket.on('message_status_update', (data) => {
-          fetchChats();
-      });
 
-      return () => {
-          socket.disconnect();
-      };
-  }, [tenantId]); // Corrección Auditoría: activeChat eliminado para evitar socket flooding
   const navigate = useNavigate();
   const [productos, setProductos] = useState([]);
   const [productSearch, setProductSearch] = useState('');
@@ -58,11 +37,22 @@ function ClientDashboard() {
   const [showChatOrderDetails, setShowChatOrderDetails] = useState(false);
     const [messageLimit, setMessageLimit] = useState(50);
     const [chatListLimit, setChatListLimit] = useState(50);
+
+    const chatListLimitRef = useRef(50);
+    const messageLimitRef = useRef(50);
+    useEffect(() => { chatListLimitRef.current = chatListLimit; }, [chatListLimit]);
+    useEffect(() => { messageLimitRef.current = messageLimit; }, [messageLimit]);
     const [orderPage, setOrderPage] = useState(1);
     const [totalOrders, setTotalOrders] = useState(0);
     const [orderFilter, setOrderFilter] = useState('pendiente');
     
-    const [activeTab, setActiveTab] = useState('dashboard');
+    const [activeTab, setActiveTab] = useState(() => {
+        return localStorage.getItem('clientActiveTab') || 'dashboard';
+    });
+
+    useEffect(() => {
+        localStorage.setItem('clientActiveTab', activeTab);
+    }, [activeTab]);
     const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
     
     // Observers refs
@@ -74,6 +64,51 @@ function ClientDashboard() {
     useEffect(() => {
         setShowScrollBottomBtn(false);
     }, [activeChat, activeTab]);
+
+  useEffect(() => {
+      if (!tenantId) return;
+      const socketUrl = API_URL.replace('/api', '');
+      const token = localStorage.getItem('token');
+      const socket = io(socketUrl, { 
+          withCredentials: true,
+          auth: { token }
+      });
+      
+      socket.on('connect', () => {
+          socket.emit('join_tenant_room', tenantId);
+      });
+      
+      const fetchSocketChats = async () => {
+          try {
+              const res = await fetch(`${API_URL}/tenant/${tenantId}/chats?limit=${chatListLimitRef.current}`);
+              if (res.ok) setChatList(await res.json());
+          } catch(e) {}
+      };
+
+      const fetchSocketMessages = async (phone) => {
+          try {
+              const res = await fetch(`${API_URL}/tenant/${tenantId}/chats/${phone}?limit=${messageLimitRef.current}`);
+              if (res.ok) setChatMessages(await res.json());
+          } catch(e) {}
+      };
+
+      socket.on('new_message', (data) => {
+          fetchSocketChats();
+          if (activeChatRef.current === data.phone) {
+              fetchSocketMessages(data.phone);
+          }
+      });
+      
+      socket.on('message_status_update', (data) => {
+          fetchSocketChats();
+      });
+
+      return () => {
+          socket.off('new_message');
+          socket.off('message_status_update');
+          socket.disconnect();
+      };
+  }, [tenantId]);  
 
     const handleChatScroll = (e) => {
         // En flex-col-reverse, el scroll visualmente hasta abajo significa que scrollTop está muy cerca de 0.
@@ -104,6 +139,7 @@ function ClientDashboard() {
   const [replyText, setReplyText] = useState("");
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [textModal, setTextModal] = useState({ isOpen: false, field: null, title: '', subtitle: '', value: '' });
   const messagesEndRef = useRef(null);
     const chatContainerRef = useRef(null);
 
@@ -114,9 +150,8 @@ function ClientDashboard() {
   const [imageFile, setImageFile] = useState(null);
   const [editProductId, setEditProductId] = useState(null);
 
-  // Polling para lista de chats
+  // Fetch inicial para lista de chats
   useEffect(() => {
-    let interval;
     if (activeTab === 'inbox') {
       const fetchChats = async () => {
         try {
@@ -126,14 +161,11 @@ function ClientDashboard() {
         } catch(e) {}
       };
       fetchChats();
-      interval = setInterval(fetchChats, 5000);
     }
-    return () => clearInterval(interval);
   }, [activeTab, tenantId, chatListLimit]);
 
-  // Polling para mensajes activos
+  // Fetch inicial para mensajes activos
   useEffect(() => {
-    let interval;
     if (activeTab === 'inbox' && activeChat) {
       const fetchMessages = async () => {
         try {
@@ -143,9 +175,7 @@ function ClientDashboard() {
         } catch(e) {}
       };
       fetchMessages();
-      interval = setInterval(fetchMessages, 3000);
     }
-    return () => clearInterval(interval);
   }, [activeTab, activeChat, tenantId, messageLimit]);
 
   useEffect(() => {
@@ -227,10 +257,12 @@ function ClientDashboard() {
       setTenantInfo(dataT);
       setSystemPrompt(dataT?.system_prompt || "");
       try {
-          const parsed = JSON.parse(dataT?.business_rules || "[]");
+          let rawRules = dataT?.business_rules || "[]";
+          if (rawRules === "[object Object]") rawRules = "[]";
+          let parsed = typeof rawRules === 'string' ? JSON.parse(rawRules) : rawRules;
           setFaqs(Array.isArray(parsed) && parsed.length > 0 ? parsed : [{ q: '', a: '' }]);
       } catch(e) {
-          setFaqs([{ q: 'Información', a: dataT?.business_rules || '' }]);
+          setFaqs([{ q: 'Información', a: '' }]);
       }
       setTier1Greeting(dataT?.tier1_greeting || "");
       setBusinessVertical(dataT?.business_vertical || "ecommerce");
@@ -329,7 +361,7 @@ function ClientDashboard() {
     if (activeTab === 'pedidos') {
       fetchOrders();
     }
-  }, [activeTab, orderPage, orderFilter]);
+  }, [activeTab, orderPage, orderFilter, tenantId]);
 
   useEffect(() => {
     if (activeTab === 'dashboard') {
@@ -451,11 +483,11 @@ function ClientDashboard() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden relative">
+    <div className="flex h-screen bg-slate-100 font-sans text-gray-900 overflow-hidden relative">
       {/* Sidebar Izquierdo (Modo Claro/Elegante) */}
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="px-6 pt-6 pb-2 border-b border-gray-100 flex items-center justify-start">
+        <div className="px-6 pt-6 pb-2 border-b border-gray-200 flex items-center justify-start">
           <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain ml-2 -mb-4" />
         </div>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
@@ -505,7 +537,7 @@ function ClientDashboard() {
             <span className="font-semibold text-sm">Afiliados (Partners)</span>
           </div>
             </div>
-          <div className="p-4 border-t border-gray-100">
+          <div className="p-4 border-t border-gray-200">
           {localStorage.getItem('role') === 'superadmin' ? (
             <button onClick={() => navigate('/admin')} className="w-full text-left text-gray-900 hover:text-blue-800 hover:bg-gray-100 p-2.5 rounded-lg font-semibold flex items-center gap-3 transition text-sm">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
@@ -527,7 +559,7 @@ function ClientDashboard() {
           <button onClick={() => setShowMobileMenu(!showMobileMenu)} className="md:hidden mr-2 p-2 text-gray-600 hover:bg-gray-100 rounded-lg"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"/></svg></button>
           <div className="flex items-center gap-4">
             
-            <h2 className="text-sm font-semibold text-gray-800">{tenantInfo?.name || "Cargando..."}</h2>
+            <h2 className="text-lg font-bold text-gray-900">{tenantInfo?.name || "Cargando..."}</h2>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-black rounded-full flex items-center justify-center text-white font-bold text-xs">
@@ -537,7 +569,7 @@ function ClientDashboard() {
         </div>
 
         {/* Área de Trabajo (Scroll) */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-100 custom-scrollbar">
           <div className="max-w-6xl mx-auto">
             
                           {activeTab === 'dashboard' && (
@@ -552,7 +584,7 @@ function ClientDashboard() {
                   {/* Cards Grid */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                     {/* Tarjeta 1: Ventas */}
-                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200/60 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col justify-between">
+                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200 shadow-md flex flex-col justify-between">
                         <div className="flex justify-between items-center mb-2 sm:mb-4">
                             <h4 className="text-xs sm:text-sm font-medium text-gray-500 truncate mr-2">Ingresos Totales</h4>
                             <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -564,7 +596,7 @@ function ClientDashboard() {
                     </div>
                     
                     {/* Tarjeta 2: Pedidos */}
-                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200/60 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col justify-between">
+                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200 shadow-md flex flex-col justify-between">
                         <div className="flex justify-between items-center mb-2 sm:mb-4">
                             <h4 className="text-xs sm:text-sm font-medium text-gray-500 truncate mr-2">Pedidos Pendientes</h4>
                             <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
@@ -576,7 +608,7 @@ function ClientDashboard() {
                     </div>
 
                     {/* Tarjeta 3: Chats */}
-                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200/60 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col justify-between">
+                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200 shadow-md flex flex-col justify-between">
                         <div className="flex justify-between items-center mb-2 sm:mb-4">
                             <h4 className="text-xs sm:text-sm font-medium text-gray-500 truncate mr-2">Total de Chats</h4>
                             <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
@@ -588,7 +620,7 @@ function ClientDashboard() {
                     </div>
 
                     {/* Tarjeta 4: Productos */}
-                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200/60 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col justify-between">
+                    <div className="bg-white p-4 sm:p-5 rounded-xl border border-gray-200 shadow-md flex flex-col justify-between">
                         <div className="flex justify-between items-center mb-2 sm:mb-4">
                             <h4 className="text-xs sm:text-sm font-medium text-gray-500 truncate mr-2">Catálogo Activo</h4>
                             <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
@@ -601,7 +633,7 @@ function ClientDashboard() {
                   </div>
 
                   {/* Gráfica Area */}
-                  <div className="bg-white p-5 rounded-xl border border-gray-200/60 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] mt-4">
+                  <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-md mt-4">
                     <div className="mb-4 flex justify-between items-end">
                         <div>
                             <h3 className="text-base font-medium text-gray-900">Rendimiento</h3>
@@ -646,8 +678,8 @@ function ClientDashboard() {
 
       {/* SECCIÓN CAMPAÑAS MASIVAS */}
       {activeTab === 'campaigns' && tenantInfo && tenantInfo.features?.campaigns && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-8">
-              <div className="bg-gradient-to-r from-indigo-50 to-white px-8 py-6 border-b border-gray-100">
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-md overflow-hidden mb-8">
+              <div className="bg-gradient-to-r from-indigo-50 to-white px-8 py-6 border-b border-gray-200">
                   <div className="flex items-center gap-3 mb-1">
                       <div className="p-2 bg-indigo-100 text-gray-900 rounded-lg">
                           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
@@ -663,7 +695,7 @@ function ClientDashboard() {
                       <div className="flex-1">
                           <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 h-full flex flex-col justify-center">
                               <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre exacto de la plantilla</label>
-                              <input type="text" id="campaignTemplateName" placeholder="Ej: promo_navidad_2026" className="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-black focus:border-transparent transition mb-4 text-sm bg-white shadow-sm" />
+                              <input type="text" id="campaignTemplateName" placeholder="Ej: promo_navidad_2026" className="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-black focus:border-transparent transition mb-4 text-sm bg-white shadow-md" />
                               
                               <button onClick={async () => {
                                   const templateName = document.getElementById('campaignTemplateName').value;
@@ -687,7 +719,7 @@ function ClientDashboard() {
                                   } catch(e) {
                                           alert('Error de conexión al servidor.');
                                   }
-                              }} className="w-full bg-black hover:bg-indigo-700 text-white font-medium py-3 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2 text-sm">
+                              }} className="w-full bg-black hover:bg-indigo-700 text-white font-medium py-3 px-4 rounded-lg shadow-md transition flex items-center justify-center gap-2 text-sm">
                                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
                                   Iniciar Envío Masivo
                               </button>
@@ -696,7 +728,7 @@ function ClientDashboard() {
 
                       {/* Right: Warning / Info */}
                       <div className="flex-[1.2]">
-                          <div className="bg-orange-50 border border-orange-200 rounded-xl p-6 h-full shadow-sm">
+                          <div className="bg-orange-50 border border-orange-200 rounded-xl p-6 h-full shadow-md">
                               <div className="flex items-start gap-3">
                                   <div className="mt-0.5">
                                       <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -757,7 +789,7 @@ function ClientDashboard() {
                       ))}
                   </div>
                   
-                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse hidden md:table">
                             <thead>
@@ -787,7 +819,7 @@ function ClientDashboard() {
                                                         setActiveChat(order.customer_phone);
                                                         setActiveTab('inbox');
                                                     }}
-                                                    className="text-green-500 hover:text-green-600 bg-green-50 hover:bg-green-100 p-1.5 rounded-full transition-colors shadow-sm"
+                                                    className="text-green-500 hover:text-green-600 bg-green-50 hover:bg-green-100 p-1.5 rounded-full transition-colors shadow-md"
                                                     title="Ir al chat"
                                                 >
                                                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
@@ -859,7 +891,7 @@ function ClientDashboard() {
                                         </div>
                                     </div>
                                     
-                                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                                         <ul className="text-sm text-gray-700 space-y-1">
                                             {(() => {
                                                 try {
@@ -881,12 +913,12 @@ function ClientDashboard() {
                                         <span className="break-words">{order.delivery_address}</span>
                                     </div>
 
-                                    <div className="pt-2 border-t border-gray-100 flex items-center justify-between">
+                                    <div className="pt-2 border-t border-gray-200 flex items-center justify-between">
                                         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Estado</span>
                                         <select 
                                             value={order.status}
                                             onChange={(e) => updateOrderStatus(order.id, e.target.value)}
-                                            className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 outline-none cursor-pointer shadow-sm ${
+                                            className={`text-xs font-bold px-3 py-1.5 rounded-full border-2 outline-none cursor-pointer shadow-md ${
                                                 order.status === 'pendiente' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
                                                 order.status === 'completado' ? 'bg-green-50 text-green-700 border-green-200' :
                                                 order.status === 'cancelado' ? 'bg-red-50 text-red-700 border-red-200' :
@@ -906,7 +938,7 @@ function ClientDashboard() {
                     
                     {/* Paginación Clásica */}
                     {totalOrders > 25 && (
-                        <div className="flex justify-between items-center px-4 py-3 bg-white rounded-b-xl border border-t-0 border-gray-200 shadow-sm mt-0">
+                        <div className="flex justify-between items-center px-4 py-3 bg-white rounded-b-xl border border-t-0 border-gray-200 shadow-md mt-0">
                             <div className="hidden sm:block">
                                 <p className="text-sm text-gray-700">
                                     Mostrando del <span className="font-medium">{(orderPage - 1) * 25 + 1}</span> al <span className="font-medium">{Math.min(orderPage * 25, totalOrders)}</span> de <span className="font-medium">{totalOrders}</span> pedidos
@@ -940,7 +972,7 @@ function ClientDashboard() {
 
               
               {activeTab === 'inbox' && (
-                <div className="flex h-[calc(100vh-140px)] bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mt-4">
+                <div className="flex h-[calc(100vh-140px)] bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden mt-4">
                   {/* Sidebar de Chats */}
                   <div className={`w-full md:w-1/3 border-r border-gray-200 flex-col bg-gray-50 ${activeChat ? 'hidden md:flex' : 'flex'}`}>
                     <div className="p-4 border-b border-gray-200 bg-white">
@@ -979,16 +1011,16 @@ function ClientDashboard() {
                             <div 
                                 key={chat.customer_phone} 
                                 onClick={() => { setActiveChat(chat.customer_phone); setMessageLimit(50); }}
-                                className={`p-4 border-b border-gray-100 cursor-pointer transition flex items-center gap-3 ${activeChat === chat.customer_phone ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-100 border-l-4 border-l-transparent'}`}
+                                className={`p-4 border-b border-gray-200 cursor-pointer transition flex items-center gap-3 ${activeChat === chat.customer_phone ? 'bg-blue-50 border-l-4 border-l-blue-500' : 'hover:bg-gray-100 border-l-4 border-l-transparent'}`}
                             >
                                 <div className="relative w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0">
                                       {initial}
                                       {chat.session_status === 'humano' ? (
-                                          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-orange-400 border-2 border-white rounded-full shadow-sm" title="Requiere atención humana"></span>
+                                          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-orange-400 border-2 border-white rounded-full shadow-md" title="Requiere atención humana"></span>
                                       ) : (
-                                          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full shadow-sm" title="Atendido por el Bot"></span>
+                                          <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-500 border-2 border-white rounded-full shadow-md" title="Atendido por el Bot"></span>
                                       )}
-                                    <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white rounded-full shadow-sm ${chat.session_status === 'humano' ? 'bg-orange-400' : 'bg-blue-500'}`} title={chat.session_status === 'humano' ? 'Requiere atención humana' : 'Atendido por el Bot'}></span>
+                                    <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white rounded-full shadow-md ${chat.session_status === 'humano' ? 'bg-orange-400' : 'bg-blue-500'}`} title={chat.session_status === 'humano' ? 'Requiere atención humana' : 'Atendido por el Bot'}></span>
                                   </div>
                                 <div className="overflow-hidden flex-1">
                                     <div className="font-bold text-gray-900 truncate">{name}</div>
@@ -1014,7 +1046,7 @@ function ClientDashboard() {
                   <div className={`w-full md:w-2/3 flex-col bg-white relative ${!activeChat ? 'hidden md:flex' : 'flex'}`}>
                     {activeChat ? (
                         <>
-                            <div className="p-4 border-b border-gray-200 bg-white flex justify-between items-center shadow-sm z-10 relative">
+                            <div className="p-4 border-b border-gray-200 bg-white flex justify-between items-center shadow-md z-10 relative">
                                 <div className="flex items-center">
                                     <button onClick={() => setActiveChat(null)} className="md:hidden mr-3 text-gray-500 hover:text-gray-700 bg-gray-100 p-2 rounded-full transition-colors">
                                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
@@ -1039,7 +1071,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                             body: JSON.stringify({ status: newStatus })
                                         });
                                     }}
-                                    className={`ml-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm transition-all border ${(chatList.find(c => c.customer_phone === activeChat)?.session_status || 'bot') === 'bot' ? 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
+                                    className={`ml-4 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md transition-all border ${(chatList.find(c => c.customer_phone === activeChat)?.session_status || 'bot') === 'bot' ? 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50' : 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100'}`}
                                     title="Click para alternar entre control automático y manual"
                                 >
                                     {(chatList.find(c => c.customer_phone === activeChat)?.session_status || 'bot') === 'bot' ? (
@@ -1065,7 +1097,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                             <span className="text-xs text-gray-500 font-medium leading-tight">Último Pedido</span>
                                             <span className="text-xs text-gray-400">{new Date(chatLatestOrder.created_at).toLocaleDateString()}</span>
                                         </div>
-                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full capitalize flex items-center gap-1.5 shadow-sm border ${
+                                        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full capitalize flex items-center gap-1.5 shadow-md border ${
                                             chatLatestOrder.status === 'completado' ? 'bg-green-50 text-green-700 border-green-200' :
                                             chatLatestOrder.status === 'cancelado' ? 'bg-red-50 text-red-700 border-red-200' :
                                             chatLatestOrder.status === 'en_proceso' ? 'bg-blue-50 text-blue-700 border-blue-200' :
@@ -1083,7 +1115,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                             {showChatOrderDetails && chatLatestOrder && (
                                 <div className="absolute top-20 right-4 left-4 sm:left-auto sm:w-80 bg-white rounded-2xl shadow-xl border border-gray-200 z-50 overflow-hidden animate-fade-in">
                                     {/* Modal Header: Title + Status Action + Close */}
-                                    <div className="px-5 py-4 flex justify-between items-center border-b border-gray-100 bg-white">
+                                    <div className="px-5 py-4 flex justify-between items-center border-b border-gray-200 bg-white">
                                         <h4 className="font-bold text-gray-900 text-sm flex items-center gap-2">
                                             <svg className="w-4 h-4 text-gray-900" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
                                             Resumen
@@ -1181,7 +1213,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                                             }, 1500);
                                                         }}
                                                         title="Copiar dirección"
-                                                        className="flex-shrink-0 text-gray-400 hover:text-gray-900 bg-white border border-gray-200 hover:border-indigo-300 rounded-md p-1.5 shadow-sm transition-all focus:outline-none active:scale-95"
+                                                        className="flex-shrink-0 text-gray-400 hover:text-gray-900 bg-white border border-gray-200 hover:border-indigo-300 rounded-md p-1.5 shadow-md transition-all focus:outline-none active:scale-95"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -1198,7 +1230,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                 <div ref={bottomAnchorRef} className="h-1 flex-shrink-0" />
                                 {[...chatMessages].reverse().map(msg => (
                                     <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[70%] rounded-xl shadow-sm relative ${(msg.message_type === 'image' || msg.message_type === 'sticker') ? 'p-1' : 'px-4 py-2'} ${msg.direction === 'outbound' ? (msg.sender_type === 'humano' ? 'bg-blue-100 rounded-tr-none border border-blue-200' : 'bg-[#dcf8c6] rounded-tr-none') : 'bg-white rounded-tl-none'}`}>
+                                        <div className={`max-w-[70%] rounded-xl shadow-md relative ${(msg.message_type === 'image' || msg.message_type === 'sticker') ? 'p-1' : 'px-4 py-2'} ${msg.direction === 'outbound' ? (msg.sender_type === 'humano' ? 'bg-blue-100 rounded-tr-none border border-blue-200' : 'bg-[#dcf8c6] rounded-tr-none') : 'bg-white rounded-tl-none'}`}>
                                             
                                             {msg.direction === 'outbound' && (
                                                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1 opacity-60">
@@ -1241,7 +1273,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                                     <p className="text-sm text-gray-800 italic leading-relaxed mt-1">"{msg.content}"</p>
                                                 </div>
                                             ) : msg.message_type === 'interactive' ? (
-                                                <div className="text-sm font-semibold text-gray-700 bg-white/50 p-2 rounded border border-gray-200 shadow-sm">{msg.content} <span className="text-[10px] block text-gray-500 font-bold uppercase mt-1 opacity-70">(Menú Interactivo)</span></div>
+                                                <div className="text-sm font-semibold text-gray-700 bg-white p-2 rounded border border-gray-200 shadow-md">{msg.content} <span className="text-[10px] block text-gray-500 font-bold uppercase mt-1 opacity-70">(Menú Interactivo)</span></div>
                                             ) : (
                                                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{
                                                     (() => {
@@ -1322,7 +1354,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                                 </button>
                                                 
                                                 {showAttachmentMenu && (
-                                                    <div className="absolute bottom-12 left-0 bg-white rounded-xl shadow-lg border border-gray-100 p-1.5 w-44 z-50 flex flex-col animate-fade-in-up">
+                                                    <div className="absolute bottom-12 left-0 bg-white rounded-xl shadow-lg border border-gray-200 p-1.5 w-44 z-50 flex flex-col animate-fade-in-up">
                                                         <button 
                                                             type="button"
                                                             onClick={() => { setShowAttachmentMenu(false); sendQuickAction('menu'); }}
@@ -1349,7 +1381,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                             </div>
 
                                             {/* Chat Form */}
-                                            <form onSubmit={handleSendReply} className="flex-1 flex gap-2 bg-white rounded-lg p-1.5 pl-4 shadow-sm items-center border border-gray-200/60">
+                                            <form onSubmit={handleSendReply} className="flex-1 flex gap-2 bg-white rounded-lg p-1.5 pl-4 shadow-md items-center border border-gray-200">
                                                 <input 
                                                     type="text" 
                                                     value={replyText}
@@ -1379,61 +1411,120 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
               )}
 
               {activeTab === 'configuracion' && (
-                <div className="max-w-4xl mx-auto mt-8">
+                <div className="max-w-6xl mx-auto mt-8">
                   <h2 className="text-3xl font-extrabold text-gray-900 mb-6">Configuración</h2>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                      {/* Tarjeta WhatsApp */}
+                      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-md flex flex-col h-full">
+                          <div className="flex flex-col mb-4">
+                              <div className="w-12 h-12 bg-[#25D366]/10 rounded-full flex items-center justify-center mb-4">
+                                  <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <path d="M12.01 2.01c-5.46 0-9.9 4.44-9.9 9.9 0 1.74.45 3.44 1.32 4.94L2 22l5.28-1.38a9.88 9.88 0 0 0 4.73 1.2h.01c5.46 0 9.89-4.43 9.89-9.89 0-5.46-4.43-9.9-9.9-9.9z" fill="#25D366"/>
+                                      <path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.16-.17.2-.35.22-.64.08-.3-.15-1.26-.46-2.39-1.48-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.61-.92-2.21-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48 0 1.46 1.07 2.88 1.21 3.07.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.42-.07-.12-.27-.2-.57-.35z" fill="#FFF"/>
+                                  </svg>
+                              </div>
+                              <h3 className="text-xl font-bold text-gray-900 mb-2">WhatsApp Business</h3>
+                              <p className="text-gray-600 mb-4 text-sm leading-snug">Vincula tu número de negocio usando la conexión oficial de Meta. El bot responderá por ti en Coexistencia.</p>
+                              
+                              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-left">
+                                  <h4 className="font-bold text-gray-800 mb-1.5 flex items-center gap-2 text-sm">
+                                      <svg className="w-4 h-4 text-gray-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                                      Beneficios 100% Oficiales
+                                  </h4>
+                                  <ul className="text-xs text-gray-600 space-y-1">
+                                      <li className="flex gap-2"><span>✅</span> Mantienes tu celular conectado.</li>
+                                      <li className="flex gap-2"><span>✅</span> Historial intacto en tu app.</li>
+                                      <li className="flex gap-2"><span>✅</span> Cero riesgo de bloqueos.</li>
+                                  </ul>
+                              </div>
+                          </div>
 
+                          <div className="w-full flex flex-col justify-end flex-1">
+                              {tenantInfo && tenantInfo.whatsapp_phone_id ? (
+                                  <div className="bg-green-50 border border-green-200 text-green-800 p-4 rounded-xl flex flex-col items-center gap-2 text-center mt-auto">
+                                      {tenantInfo.meta_picture ? (
+                                          <img src={tenantInfo.meta_picture} alt="WhatsApp Profile" className="w-12 h-12 rounded-full border-2 border-green-200 shadow-sm" />
+                                      ) : (
+                                          <svg className="w-10 h-10 text-green-500 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                      )}
+                                      <div className="font-bold text-base leading-tight">{tenantInfo.meta_name || "Cuenta Conectada"}</div>
+                                      <div className="text-[10px] font-mono bg-green-100 text-green-700 px-2 py-0.5 rounded-md">ID: {tenantInfo.whatsapp_phone_id}</div>
+                                      <p className="text-xs font-medium mt-1 text-green-700">Bot activo escuchando.</p>
+                                      <div className="flex items-center gap-4 mt-1">
+                                          <button onClick={() => alert("Para desconectar, hazlo desde tu app de WhatsApp Business en Configuración > Herramientas para la empresa > Meta.")} className="text-xs underline text-green-600 hover:text-green-800">¿Cómo desconectar?</button>
+                                          <button onClick={async () => {
+                                              try {
+                                                  const res = await fetch(`${API_URL}/tenant/${tenantId}/sync-profile`, { method: 'POST' });
+                                                  if(res.ok) { alert("¡Perfil de Meta sincronizado exitosamente!"); fetchData(); }
+                                                  else { alert("Hubo un error al sincronizar el perfil. Puede que el token haya expirado."); }
+                                              } catch(e) { alert("Error de red."); }
+                                          }} className="text-xs underline text-green-600 hover:text-green-800 flex items-center gap-1" title="Actualizar foto y nombre">
+                                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                              Sincronizar Info
+                                          </button>
+                                      </div>
+                                  </div>
+                              ) : (
+                                  <button onClick={handleMetaLogin} disabled={loading} className={`w-full mt-auto min-h-[60px] ${loading ? 'bg-gray-400' : 'bg-[#1877F2] hover:bg-[#166FE5]'} text-white font-bold py-3 px-4 rounded-xl shadow-md transition flex flex-col sm:flex-row items-center justify-center gap-2 text-sm`}>
+                                      {loading ? (
+                                          <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                          </svg>
+                                      ) : (
+                                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                                      )}
+                                      <span className="text-center">{loading ? 'Abriendo Facebook...' : 'Conectar con Facebook'}</span>
+                                  </button>
+                              )}
+                          </div>
+                      </div>
 
-                  
-                  <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-8 items-center">
-                    <div className="flex-1">
-                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-6">
-                            <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                        </div>
-                        <h3 className="text-2xl font-bold text-gray-900 mb-3">Conecta tu WhatsApp Business</h3>
-                        <p className="text-gray-600 mb-4 leading-relaxed">Vincula tu número de negocio usando la conexión oficial de Meta. Podrás seguir usando la app de WhatsApp Business en tu celular mientras nuestro bot responde por ti automáticamente.</p>
-                        
-                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-left">
-                            <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2 text-sm">
-                                <svg className="w-4 h-4 text-gray-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                                Beneficios de la Coexistencia
-                            </h4>
-                            <ul className="text-sm text-gray-600 space-y-1">
-                                <li className="flex gap-2"><span>✅</span> Mantienes tu celular conectado.</li>
-                                <li className="flex gap-2"><span>✅</span> Historial de chats intacto en tu app.</li>
-                                <li className="flex gap-2"><span>✅</span> Cero riesgo de bloqueos (100% Oficial).</li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div className="flex-1 w-full flex flex-col justify-center">
-                        {tenantInfo && tenantInfo.whatsapp_phone_id ? (
-                            <div className="bg-green-50 border border-green-200 text-green-800 p-6 rounded-xl flex flex-col items-center gap-3 text-center">
-                                {tenantInfo.meta_picture ? (
-                                    <img src={tenantInfo.meta_picture} alt="WhatsApp Profile" className="w-20 h-20 rounded-full border-4 border-green-200 shadow-sm" />
-                                ) : (
-                                    <svg className="w-16 h-16 text-green-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                )}
-                                <div className="font-bold text-lg">{tenantInfo.meta_name || "Cuenta Conectada"}</div>
-                                <div className="text-xs font-mono bg-green-100 text-green-700 px-2 py-1 rounded-md">ID: {tenantInfo.whatsapp_phone_id}</div>
-                                <p className="text-sm font-normal mt-2 text-green-700">El bot está activo y escuchando en Coexistencia.</p>
-                                <button onClick={() => alert("Para desconectar, hazlo desde tu app de WhatsApp Business en Configuración > Herramientas para la empresa > Meta.")} className="mt-2 text-xs underline text-green-600 hover:text-green-800">¿Cómo desconectar?</button>
-                            </div>
-                        ) : (
-                            <button onClick={handleMetaLogin} disabled={loading} className={`w-full ${loading ? 'bg-gray-400' : 'bg-[#1877F2] hover:bg-[#166FE5]'} text-white font-bold py-4 px-6 rounded-xl shadow-lg transition flex items-center justify-center gap-3 text-lg`}>
-                                {loading ? (
-                                    <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                ) : (
-                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                                )}
-                                {loading ? 'Abriendo Facebook...' : 'Conectar con Facebook'}
-                            </button>
-                        )}
-                    </div>
+                      {/* Tarjeta Notificaciones de Telegram */}
+                      <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-200 flex flex-col h-full">
+                          <div className="flex flex-col mb-4">
+                              <div className="w-12 h-12 bg-[#0088cc]/10 rounded-full flex items-center justify-center mb-4">
+                                  <svg className="w-6 h-6 text-[#0088cc]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.94z"/></svg>
+                              </div>
+                              <h3 className="text-xl font-bold text-gray-900 mb-2">Alertas Telegram</h3>
+                              <p className="text-gray-600 mb-4 text-sm leading-snug">
+                                  Vincula tu cuenta de administrador para recibir notificaciones importantes en tu móvil sin saturar WhatsApp.
+                              </p>
+                              
+                              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-left">
+                                  <h4 className="font-bold text-gray-800 mb-1.5 flex items-center gap-2 text-sm">
+                                      <svg className="w-4 h-4 text-gray-900" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                                      Beneficios de Sincronizar
+                                  </h4>
+                                  <ul className="text-xs text-gray-600 space-y-1">
+                                      <li className="flex gap-2"><span>✅</span> Alertas de ventas en tiempo real.</li>
+                                      <li className="flex gap-2"><span>✅</span> Avisos urgentes de clientes humanos.</li>
+                                      <li className="flex gap-2"><span>✅</span> 100% gratuito y seguro.</li>
+                                  </ul>
+                              </div>
+                          </div>
+                          
+                          <div className="w-full flex flex-col justify-end flex-1">
+                              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-auto">
+                                  <p className="text-sm font-semibold text-gray-800 mb-3 text-center leading-snug">
+                                      Busca a <a href={`https://t.me/${import.meta.env.VITE_TELEGRAM_BOT_USERNAME || 'dynova_alertas_bot'}`} target="_blank" rel="noreferrer" className="text-[#0088cc] hover:underline font-bold">@Dynova_alertas_bot</a> en Telegram y envíale este código:
+                                  </p>
+                                  <div className="bg-[#1C2331] text-[#20C25E] font-mono p-3.5 rounded-xl cursor-pointer text-center tracking-wider flex items-center justify-center gap-2 hover:bg-[#151a24] transition-colors shadow-inner font-bold" onClick={() => {
+                                      const pin = tenantInfo?.whatsapp_phone_id ? tenantInfo.whatsapp_phone_id.substring(0,5) : 'XXXXX';
+                                      navigator.clipboard.writeText(`/conectar ${tenantId} ${pin}`);
+                                  }} title="Clic para copiar">
+                                      /conectar {tenantId} {tenantInfo?.whatsapp_phone_id ? tenantInfo.whatsapp_phone_id.substring(0,5) : 'XXXXX'}
+                                      <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                  </div>
+                                  <p className="text-[11px] text-gray-500 mt-3 text-center leading-relaxed">
+                                      Da clic en el código para copiarlo. El bot te confirmará cuando la vinculación sea exitosa.
+                                  </p>
+                              </div>
+                          </div>
+                      </div>
                   </div>
+
                 </div>
               )}
 
@@ -1448,24 +1539,24 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-md">
                             <p className="text-sm font-bold text-gray-500 mb-1">Total Referidos</p>
                             <p className="text-4xl font-extrabold text-gray-900">0</p>
                             <p className="text-xs text-gray-400 mt-2">Negocios activos usando tu código</p>
                         </div>
-                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-md">
                             <p className="text-sm font-bold text-gray-500 mb-1">Comisiones Pendientes</p>
                             <p className="text-4xl font-extrabold text-amber-500">0.00 USD</p>
                             <p className="text-xs text-gray-400 mt-2">Próximo pago a fin de mes</p>
                         </div>
-                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-md">
                             <p className="text-sm font-bold text-gray-500 mb-1">Total Pagado</p>
                             <p className="text-4xl font-extrabold text-green-500">0.00 USD</p>
                             <p className="text-xs text-gray-400 mt-2">Ganancias históricas</p>
                         </div>
                     </div>
 
-                    <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm mb-8 relative overflow-hidden">
+                    <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-md mb-8 relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-bl-full -z-0 opacity-50"></div>
                         <h3 className="text-lg font-bold text-gray-800 mb-4 relative z-10">Tu Enlace de Afiliado</h3>
                         <p className="text-sm text-gray-600 mb-4 relative z-10">Comparte este enlace con tus prospectos. Si se registran usándolo, recibirás una comisión mensual mientras mantengan su suscripción activa.</p>
@@ -1478,8 +1569,8 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-gray-100">
+                    <div className="bg-white rounded-2xl border border-gray-200 shadow-md overflow-hidden">
+                        <div className="p-6 border-b border-gray-200">
                             <h3 className="text-lg font-bold text-gray-800">Tus Clientes Referidos</h3>
                         </div>
                         <div className="p-12 text-center flex flex-col items-center justify-center">
@@ -1515,7 +1606,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
           <div className="mb-10 relative">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Tarjeta 1: Personalidad (Izquierda) */}
-                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit">
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-md h-fit">
                       <div className="flex items-center gap-2 mb-1">
                           <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                           <h2 className="text-lg font-bold text-gray-900">Personalidad del Agente</h2>
@@ -1531,7 +1622,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                   </div>
 
                   {/* Tarjeta 2: Base de Conocimiento (Derecha) */}
-                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm h-fit">
+                  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-md h-fit">
                       <div className="flex items-center gap-2 mb-1">
                           <svg className="w-5 h-5 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                           <h2 className="text-lg font-bold text-gray-900">Base de Conocimiento</h2>
@@ -1540,8 +1631,8 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                       
                       <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                           {faqs.map((faq, index) => (
-                              <div key={index} className="flex flex-col gap-2 bg-white p-4 rounded-lg border border-gray-200 relative group hover:border-gray-400 transition shadow-sm">
-                                  <button onClick={() => setDeleteConfirm({ isOpen: true, type: 'faq', index: index })} className="absolute -top-2 -right-2 bg-white border border-gray-200 text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-sm" title="Eliminar">
+                              <div key={index} className="flex flex-col gap-2 bg-white p-4 rounded-lg border border-gray-200 relative group hover:border-gray-400 transition shadow-md">
+                                  <button onClick={() => setDeleteConfirm({ isOpen: true, type: 'faq', index: index })} className="absolute -top-2 -right-2 bg-white border border-gray-200 text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-md" title="Eliminar">
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
                                   </button>
                                   
@@ -1585,105 +1676,158 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                 <div className="flex flex-col gap-6">
                     
                     {/* Tarjeta 1: Tipo de Negocio */}
-                    <div className="bg-white/90 p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden backdrop-blur-sm">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-6 relative z-10">Tipo de Negocio y Formato</h2>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 relative z-10">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1.5">Vertical de Negocio</label>
-                                <select value={businessVertical} onChange={e => setBusinessVertical(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm transition-shadow">
-                                    <option value="ecommerce">Tienda / E-commerce (Carrito)</option>
-                                    <option value="clinic">Clínica / Servicios (Citas)</option>
-                                    <option value="lead_gen">Generación de Leads (Datos)</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1.5">Moneda Local</label>
-                                <input type="text" value={currency} onChange={e => setCurrency(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm transition-shadow" placeholder="Ej: Q, $, MXN" />
-                            </div>
+                    <div className="bg-white p-6 md:p-8 rounded-2xl shadow-md border border-gray-200 relative z-30">
+                        <div className="absolute inset-0 overflow-hidden rounded-2xl pointer-events-none">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10"></div>
                         </div>
+                        <h2 className="text-xl font-bold text-gray-800 mb-6 relative z-10">Configuración del Negocio</h2>
                         
-                        <div className="mt-5 relative z-10">
-                            <label className="block text-sm font-bold text-gray-700 mb-1.5">Mensaje de Finalización (Checkout / Despedida)</label>
-                            <textarea value={checkoutMessage} onChange={e => setCheckoutMessage(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-white shadow-sm resize-none transition-shadow" rows="3" placeholder="Ej: Un asesor se contactará para coordinar el pago..."></textarea>
-                            <p className="text-xs text-gray-500 mt-2">Texto enviado al finalizar un pedido, agendar cita o recolectar un lead.</p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 relative z-10">
+                            <div className="md:col-span-2 relative">
+                                <label className="block text-sm font-bold text-gray-700 mb-1.5">Vertical de Negocio</label>
+                                <CustomSelect 
+                                    value={businessVertical} 
+                                    onChange={(val) => setBusinessVertical(val)} 
+                                    options={[
+                                        { value: 'ecommerce', label: 'Tienda / E-commerce (Carrito)' },
+                                        { value: 'clinic', label: 'Clínica / Servicios (Citas)' },
+                                        { value: 'lead_gen', label: 'Generación de Leads (Datos)' }
+                                    ]}
+                                />
+                            </div>
+                            <div className="md:col-span-1 relative">
+                                <label className="block text-sm font-bold text-gray-700 mb-1.5">Moneda Local</label>
+                                <CustomSelect 
+                                    value={currency} 
+                                    onChange={(val) => setCurrency(val)} 
+                                    options={[
+                                        { value: 'Q', label: 'Quetzal (Q)' },
+                                        { value: 'USD', label: 'Dólares (USD)' },
+                                        { value: 'MXN', label: 'Peso mexicano (MXN)' },
+                                        { value: 'COP', label: 'Peso colombiano (COP)' },
+                                        { value: 'ARS', label: 'Peso argentino (ARS)' },
+                                        { value: 'CLP', label: 'Peso chileno (CLP)' },
+                                        { value: 'PEN', label: 'Sol peruano (PEN)' },
+                                        { value: 'EUR', label: 'Euro (EUR)' }
+                                    ]}
+                                />
+                            </div>
                         </div>
                     </div>
 
-                    {/* Tarjeta 2: Mensaje de Saludo */}
-                    <div className="bg-white/90 p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden backdrop-blur-sm">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-6 relative z-10">Mensaje de Saludo</h2>
-                        <textarea value={tier1Greeting} onChange={e => setTier1Greeting(e.target.value)} className="w-full border border-gray-200 p-4 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm resize-none transition-shadow text-gray-700 relative z-10" rows="4" placeholder="Ej: ¡Hola! Gracias por comunicarte con nosotros..."></textarea>
-                        <p className="text-xs text-gray-500 mt-2 relative z-10">Este es el mensaje de bienvenida que se muestra al iniciar una conversación.</p>
+                    {/* Tarjeta 2: Textos Base del Bot (Cronológico) */}
+                    <div className="bg-white p-5 md:p-6 rounded-2xl shadow-md border border-gray-200 relative overflow-hidden">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4 relative z-10">Textos Base del Bot</h2>
+                        
+                        <div className="space-y-4 relative z-10">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-900 mb-1.5 uppercase tracking-wider">1. Mensaje de Saludo</label>
+                                <div 
+                                    onClick={() => setTextModal({ isOpen: true, field: 'tier1Greeting', title: 'Mensaje de Saludo', subtitle: 'Mensaje de bienvenida al iniciar una conversación.', value: tier1Greeting })}
+                                    className="w-full border border-gray-200 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors text-gray-700 text-sm min-h-[60px] relative group"
+                                >
+                                    <div className="line-clamp-2 pr-6 whitespace-pre-wrap">{tier1Greeting || <span className="text-gray-400 italic">Haz clic para editar el mensaje...</span>}</div>
+                                    <svg className="w-4 h-4 text-gray-400 absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-1">Mensaje de bienvenida al iniciar una conversación.</p>
+                            </div>
+                            
+                            <div className="border-t border-gray-100 pt-4">
+                                <label className="block text-xs font-bold text-gray-900 mb-1.5 uppercase tracking-wider">2. Mensaje de Finalización (Despedida)</label>
+                                <div 
+                                    onClick={() => setTextModal({ isOpen: true, field: 'checkoutMessage', title: 'Mensaje de Finalización', subtitle: 'Texto enviado al finalizar un pedido o recolectar un lead.', value: checkoutMessage })}
+                                    className="w-full border border-gray-200 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors text-gray-700 text-sm min-h-[60px] relative group"
+                                >
+                                    <div className="line-clamp-2 pr-6 whitespace-pre-wrap">{checkoutMessage || <span className="text-gray-400 italic">Haz clic para editar el mensaje...</span>}</div>
+                                    <svg className="w-4 h-4 text-gray-400 absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-1">Texto enviado al finalizar un pedido o recolectar un lead.</p>
+                            </div>
+                        </div>
                     </div>
 
                 </div>
 
                 {/* COLUMNA DERECHA: Opciones del Menú */}
-                <div className="bg-white/90 p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden backdrop-blur-sm flex flex-col h-full">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-100 rounded-full blur-3xl opacity-30 -mr-10 -mt-10 pointer-events-none"></div>
-                    
-                    <div className="flex justify-between items-center mb-6 relative z-10">
-                        <h2 className="text-xl font-bold text-gray-800">Configuración de Menú Principal</h2>
-                        <button onClick={handleAddMenu} className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-bold transition shadow-sm">+ Añadir Opción</button>
+                <div className="bg-white p-5 md:p-6 rounded-2xl shadow-md border border-gray-200 relative overflow-hidden flex flex-col h-full">
+                    <div className="mb-4 relative z-10">
+                        <h2 className="text-xl font-bold text-gray-800">Menú Principal del Bot</h2>
+                        <p className="text-xs text-gray-500 mt-1">Opciones interactivas que el cliente verá después del saludo.</p>
                     </div>
                     
-                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-4 relative z-10">
+                    <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3 relative z-10 pb-2">
                         
-                        <div className="flex items-center gap-4 p-4 bg-indigo-50 border border-indigo-100 rounded-xl shadow-sm">
-                            <div className="bg-white p-2.5 rounded-lg shadow-sm">
-                                <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                        <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl shadow-sm">
+                            <div className="bg-white p-2 rounded-lg shadow-sm border border-gray-100">
+                                <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                             </div>
                             <div>
-                                <h3 className="font-bold text-indigo-900 text-sm">{businessVertical === 'clinic' ? 'Ver Servicios' : (businessVertical === 'lead_gen' ? 'Catálogo' : 'Ver Productos')}</h3>
-                                <p className="text-xs text-indigo-700/80 mt-0.5 font-medium">Opción fija del sistema (abre el catálogo).</p>
+                                <h3 className="font-bold text-gray-900 text-xs uppercase tracking-wider">{businessVertical === 'clinic' ? 'Ver Servicios' : (businessVertical === 'lead_gen' ? 'Catálogo' : 'Ver Productos')}</h3>
+                                <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Opción fija del sistema (abre el catálogo).</p>
                             </div>
                         </div>
                         
                         {tier1Menu.map((m, idx) => (
-                            <div key={idx} className="p-5 bg-white rounded-xl border border-gray-200 shadow-sm hover:border-indigo-300 transition-all relative group">
-                                <div className="absolute top-4 right-4 z-10">
+                            <div key={idx} className="p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all relative group">
+                                <div className="absolute top-3 right-3 z-10">
                                     <button onClick={() => setDeleteConfirm({ isOpen: true, type: 'menu', index: idx })} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors" title="Eliminar opción">
-                                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                     </button>
                                 </div>
 
-                                <div className="flex flex-col gap-4 pr-8">
+                                <div className="flex flex-col gap-3 pr-8">
                                     <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Título del Botón</label>
-                                        <input type="text" value={m.title} maxLength="24" onChange={e => { let nm = [...tier1Menu]; nm[idx].title = e.target.value; setTier1Menu(nm); }} className="w-full border border-gray-200 p-2.5 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50/50 focus:bg-white transition-colors" placeholder="Ej: Formas de pago" />
+                                        <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wider">Título del Botón</label>
+                                        <input type="text" value={m.title} maxLength="24" onChange={e => { let nm = [...tier1Menu]; nm[idx].title = e.target.value; setTier1Menu(nm); }} className="w-full border border-gray-200 p-2 rounded-lg outline-none focus:ring-2 focus:ring-gray-900 text-sm bg-gray-50 focus:bg-white transition-colors" placeholder="Ej: Formas de pago" />
                                     </div>
+                                </div>
+
+                                <details className="group mt-3 border-t border-gray-100 pt-2">
+                                    <summary className="text-[11px] font-bold text-gray-500 hover:text-gray-900 cursor-pointer flex items-center gap-1.5 select-none w-max">
+                                        <svg className="w-3.5 h-3.5 transition-transform group-open:rotate-90 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"/></svg>
+                                        Configurar Respuesta y Archivo Adjunto
+                                    </summary>
                                     
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Respuesta del Bot</label>
-                                        <textarea value={m.response} onChange={e => { let nm = [...tier1Menu]; nm[idx].response = e.target.value; setTier1Menu(nm); }} className="w-full border border-gray-200 p-3 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50/50 focus:bg-white resize-none h-24 transition-colors" placeholder="El texto que el bot responderá al tocar este botón..."></textarea>
-                                    </div>
-                                </div>
-                                
-                                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <label className="text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 cursor-pointer px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                            {m.image_url ? 'Cambiar Imagen' : 'Adjuntar Imagen'}
-                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUploadMenu(idx, e.target.files[0])} />
-                                        </label>
-                                        {m.image_url && (
-                                            <div className="flex items-center gap-2 bg-gray-50 p-1.5 pr-3 rounded-lg border border-gray-200">
-                                                <img src={m.image_url} alt="Adjunto" className="w-8 h-8 object-cover rounded-md" />
-                                                <button onClick={() => { let nm = [...tier1Menu]; delete nm[idx].image_url; setTier1Menu(nm); }} className="text-gray-400 hover:text-red-500 text-xs font-bold px-2 transition-colors">Quitar</button>
+                                    <div className="mt-3 flex flex-col gap-3 bg-gray-50/50 p-3 rounded-xl border border-gray-100">
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wider">Respuesta del Bot</label>
+                                            <div 
+                                                onClick={() => setTextModal({ isOpen: true, field: 'tier1Menu', index: idx, title: `Respuesta: ${m.title || 'Opción'}`, subtitle: 'El texto que el bot responderá al tocar este botón.', value: m.response })}
+                                                className="w-full border border-gray-200 p-2.5 rounded-lg bg-white hover:bg-gray-50 cursor-pointer transition-colors shadow-sm min-h-[4.5rem] relative group"
+                                            >
+                                                <div className="line-clamp-3 pr-6 whitespace-pre-wrap text-sm text-gray-700">{m.response || <span className="text-gray-400 italic">Haz clic para editar la respuesta del bot...</span>}</div>
+                                                <svg className="w-4 h-4 text-gray-400 absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
                                             </div>
-                                        )}
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-3">
+                                            <label className="text-[11px] font-bold text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 cursor-pointer px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm">
+                                                <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                                {m.image_url ? 'Cambiar Imagen' : 'Adjuntar Imagen'}
+                                                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUploadMenu(idx, e.target.files[0])} />
+                                            </label>
+                                            {m.image_url && (
+                                                <div className="flex items-center gap-2 bg-white p-1 pr-2 rounded-lg border border-gray-200 shadow-sm">
+                                                    <img src={m.image_url} alt="Adjunto" className="w-6 h-6 object-cover rounded-md" />
+                                                    <button onClick={() => { let nm = [...tier1Menu]; delete nm[idx].image_url; setTier1Menu(nm); }} className="text-gray-400 hover:text-red-500 text-[10px] font-bold px-1 transition-colors">Quitar</button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                </details>
                             </div>
                         ))}
+                        
+                        <button onClick={handleAddMenu} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-600 font-bold text-sm hover:bg-gray-50 hover:border-gray-400 transition-all flex justify-center items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                            Añadir Nueva Opción
+                        </button>
                     </div>
+
                     
                     {/* CONTROLES DE GUARDADO */}
-                    <div className="flex justify-end mt-6 pt-4 border-t border-gray-100 relative z-10">
-                        <button onClick={handleSaveConfig} disabled={savingPrompt} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition shadow-sm flex items-center gap-2">
+                    <div className="flex justify-end mt-6 pt-4 border-t border-gray-200 relative z-10">
+                        <button onClick={handleSaveConfig} disabled={savingPrompt} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition shadow-md flex items-center gap-2">
                             {savingPrompt ? (
                                 <>
                                     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -1712,7 +1856,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
             <div className="space-y-6">
                 {/* Search Bar */}
                 {productos.length > 0 && (
-                    <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-sm">
+                    <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-md">
                         <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                         <input 
                             type="text" 
@@ -1730,24 +1874,33 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                 )}
 
                 {productos.length === 0 ? (
-                    <div className="bg-white p-16 text-center rounded-2xl border-2 border-dashed border-gray-300">
-                        <h3 className="text-2xl font-bold text-gray-600 mb-2">Catálogo vacío</h3>
-                        <p className="text-gray-500">Haz clic en el botón oscuro para agregar el primer producto a tu tienda virtual.</p>
+                    <div className="bg-white rounded-3xl border-2 border-dashed border-gray-200 p-12 md:p-16 flex flex-col items-center justify-center text-center mt-4">
+                        <div className="bg-gray-50 p-5 rounded-full mb-5 border border-gray-100">
+                            <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">Tu catálogo está vacío</h3>
+                        <p className="text-gray-500 text-sm max-w-[350px] mb-8">Comienza a subir los productos o servicios que ofrecerás a través del bot para que tus clientes puedan comprar.</p>
+                        <button onClick={() => { setEditProductId(null); setFormData({name: '', price: '', description: '', image: null}); setImagePreview(null); setShowModal(true); }} className="bg-black text-white px-7 py-3 rounded-full font-semibold text-sm hover:bg-gray-800 shadow-md transition flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                            Subir mi primer producto
+                        </button>
                     </div>
                 ) : filteredProducts.length === 0 ? (
-                    <div className="bg-white p-12 text-center rounded-2xl border border-gray-200">
-                        <p className="text-gray-500">No se encontraron productos que coincidan con tu búsqueda.</p>
+                    <div className="bg-white p-16 flex flex-col items-center justify-center text-center rounded-3xl border border-gray-200 mt-4">
+                        <svg className="w-10 h-10 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        <h3 className="text-lg font-bold text-gray-900 mb-1">Sin resultados</h3>
+                        <p className="text-gray-500 text-sm">No se encontraron productos que coincidan con "{productSearch}".</p>
                     </div>
                 ) : (
                     <>
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5">
                             {paginatedProducts.map(p => (
-                                <div key={p.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 relative group flex flex-col h-full hover:-translate-y-1">
+                                <div key={p.id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 relative group flex flex-col h-full hover:-translate-y-1">
                                     <div className="absolute top-2 right-2 flex gap-1.5 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                        <button onClick={() => handleEditProduct(p)} className="bg-white/90 backdrop-blur-sm text-gray-700 border border-gray-200/50 w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-sm hover:bg-white hover:text-gray-900 transition-colors" title="Editar Producto">
+                                        <button onClick={() => handleEditProduct(p)} className="bg-white  text-gray-700 border border-gray-200/50 w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-md hover:bg-white hover:text-gray-900 transition-colors" title="Editar Producto">
                                             <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                         </button>
-                                        <button onClick={() => handleDelete(p.id)} className="bg-red-500/90 backdrop-blur-sm text-white w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-sm hover:bg-red-600 transition-colors" title="Eliminar Producto">
+                                        <button onClick={() => handleDelete(p.id)} className="bg-red-500/90  text-white w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center shadow-md hover:bg-red-600 transition-colors" title="Eliminar Producto">
                                             <svg className="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                         </button>
                                     </div>
@@ -1758,19 +1911,12 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                     >
                                         <img src={p.image_url} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition duration-700 ease-in-out" />
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-                                            <div className="bg-black/30 backdrop-blur-sm p-2 md:p-3 rounded-full text-white shadow-lg">
-                                                <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                                                </svg>
-                                            </div>
-                                        </div>
                                     </div>
 
                                     <div className="p-3 md:p-4 flex flex-col flex-grow bg-white">
                                         <h3 className="font-bold text-[13px] md:text-[15px] leading-snug text-gray-900 line-clamp-2 pr-4 md:pr-0">{p.name}</h3>
                                         <p className="text-[11px] md:text-sm text-gray-500 mt-1 md:mt-2 line-clamp-2 leading-relaxed flex-grow">{p.description}</p>
-                                        <div className="mt-3 md:mt-4 pt-3 flex justify-between items-center border-t border-gray-100">
+                                        <div className="mt-3 md:mt-4 pt-3 flex justify-between items-center border-t border-gray-200">
                                             <span className="text-[15px] md:text-lg font-black text-gray-900 tracking-tight">Q{p.price}</span>
                                             <span className="text-[9px] md:text-xs font-bold uppercase tracking-wider text-green-700 bg-green-50 border border-green-200/50 px-1.5 py-0.5 md:px-2.5 md:py-1 rounded-full">En stock</span>
                                         </div>
@@ -1808,8 +1954,8 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
       })()}
 
             {showModal && (
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100 max-h-[95vh] overflow-y-auto scrollbar-hide" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-50  flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
+            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-200 max-h-[95vh] overflow-y-auto scrollbar-hide" onClick={(e) => e.stopPropagation()}>
                 <h2 className="text-xl font-bold mb-6 text-gray-900">{editProductId ? 'Editar Producto' : 'Nuevo Producto'}</h2>
                 <form onSubmit={handleSubmit}>
                     
@@ -1820,12 +1966,12 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                     </div>
 
                     <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Nombre del Producto</label>
-                    <input type="text" required maxLength="24" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full border border-gray-200 p-2.5 rounded-xl bg-gray-50 mb-5 outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-sm text-sm" placeholder="Ej: Pizza Familiar" />
+                    <input type="text" required maxLength="24" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full border border-gray-200 p-2.5 rounded-xl bg-gray-50 mb-5 outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-md text-sm" placeholder="Ej: Pizza Familiar" />
                     
                     <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Precio de Venta</label>
                     <div className="relative mb-5">
                         <span className="absolute left-2 top-2 font-bold text-gray-500 text-sm">Q</span>
-                        <input type="number" step="0.01" required value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} className="w-full border border-gray-200 p-2.5 rounded-xl bg-gray-50 pl-6 outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-sm text-sm font-medium" placeholder="99.00" />
+                        <input type="number" step="0.01" required value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} className="w-full border border-gray-200 p-2.5 rounded-xl bg-gray-50 pl-6 outline-none focus:border-black focus:ring-1 focus:ring-black transition shadow-md text-sm font-medium" placeholder="99.00" />
                     </div>
 
                     <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">Descripción para WhatsApp</label>
@@ -1834,7 +1980,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                     <div className="flex gap-3">
                         <button type="button" onClick={() => setShowModal(false)} className="flex-1 px-5 py-2.5 bg-gray-100 rounded-xl font-semibold text-gray-700 hover:bg-gray-200 transition text-sm">Cancelar</button>
                         <button type="submit" disabled={loading} className="flex-1 py-3 bg-black text-white rounded-xl font-semibold shadow-md hover:bg-gray-800 transition flex items-center justify-center gap-2 text-sm">
-                            {loading ? 'Guardando...' : (editProductId ? 'Guardar Cambios' : '🚀 Publicar')}
+                            {loading ? 'Guardando...' : (editProductId ? 'Guardar Cambios' : 'Publicar')}
                         </button>
                     </div>
                 </form>
@@ -1844,9 +1990,9 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
 
       {/* Confirmación Eliminar */}
       {deleteConfirm.isOpen && (
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setDeleteConfirm({ isOpen: false, type: null, index: null })}>
-            <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm border border-gray-100 transform transition-all text-center" onClick={(e) => e.stopPropagation()}>
-                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-sm">
+        <div className="fixed inset-0 bg-gray-900 bg-opacity-50  flex items-center justify-center z-[100] p-4" onClick={() => setDeleteConfirm({ isOpen: false, type: null, index: null })}>
+            <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm border border-gray-200 transform transition-all text-center" onClick={(e) => e.stopPropagation()}>
+                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-md">
                     <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -1967,8 +2113,8 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
       )}
 
 {showProductPicker && (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setShowProductPicker(false)}>
-        <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-lg border border-gray-100 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-50  flex items-center justify-center z-[100] p-4" onClick={() => setShowProductPicker(false)}>
+        <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-lg border border-gray-200 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-900">Seleccionar Producto</h2>
                 <button onClick={() => setShowProductPicker(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -2034,7 +2180,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                         </div>
                                     </div>
 
-                                    <div className="p-3 w-full border-t border-gray-100 bg-white">
+                                    <div className="p-3 w-full border-t border-gray-200 bg-white">
                                         <p className="font-bold text-gray-900 truncate text-[13px]">{p.name}</p>
                                         <p className="text-blue-600 font-bold text-xs mt-0.5">Q{p.price}</p>
                                     </div>
@@ -2043,6 +2189,49 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                         </div>
                     </>
                 )}
+            </div>
+        </div>
+    </div>
+)}
+
+{textModal.isOpen && (
+    <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-[110] p-4 transition-opacity" onClick={() => setTextModal({ isOpen: false, field: null, title: '', subtitle: '', value: '' })}>
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col transform transition-all" onClick={e => e.stopPropagation()}>
+            <div className="px-6 pt-6 pb-3 flex items-start justify-between bg-white">
+                <div>
+                    <h3 className="text-xl font-semibold text-gray-900 tracking-tight">{textModal.title}</h3>
+                    {textModal.subtitle && <p className="text-sm text-gray-500 mt-1">{textModal.subtitle}</p>}
+                </div>
+                <button onClick={() => setTextModal({ isOpen: false, field: null, title: '', subtitle: '', value: '' })} className="text-gray-400 hover:text-gray-800 transition-colors p-1 mt-1">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <div className="px-6 py-2 flex-1 bg-white">
+                <textarea 
+                    value={textModal.value} 
+                    onChange={e => setTextModal(prev => ({ ...prev, value: e.target.value }))} 
+                    className="w-full bg-gray-50/50 hover:bg-gray-50 focus:bg-white border border-transparent focus:border-gray-200 p-4 rounded-2xl outline-none transition-colors text-gray-800 resize-y min-h-[180px] text-base leading-relaxed" 
+                    placeholder="Escribe el mensaje aquí..."
+                    autoFocus
+                ></textarea>
+            </div>
+            <div className="px-6 pb-6 pt-4 bg-white flex justify-end gap-3">
+                <button onClick={() => setTextModal({ isOpen: false, field: null, title: '', subtitle: '', value: '' })} className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">Cancelar</button>
+                <button 
+                    onClick={() => {
+                        if (textModal.field === 'tier1Greeting') setTier1Greeting(textModal.value);
+                        if (textModal.field === 'checkoutMessage') setCheckoutMessage(textModal.value);
+                        if (textModal.field === 'tier1Menu' && textModal.index !== undefined) {
+                            let nm = [...tier1Menu];
+                            nm[textModal.index].response = textModal.value;
+                            setTier1Menu(nm);
+                        }
+                        setTextModal({ isOpen: false, field: null, index: null, title: '', subtitle: '', value: '' });
+                    }} 
+                    className="bg-black hover:bg-gray-800 text-white px-7 py-2.5 rounded-full text-sm font-semibold transition-transform active:scale-95"
+                >
+                    Guardar
+                </button>
             </div>
         </div>
     </div>

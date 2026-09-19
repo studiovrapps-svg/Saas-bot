@@ -165,7 +165,7 @@ const getGlobalStats = async (req, res) => {
         const pricing = pricingRes.rows[0]?.value || { plans: {}, modules: {} };
 
         // 1. Get all active tenants
-        const tenantsRes = await pool.query('SELECT id, name, bot_tier, features FROM tenants WHERE is_active = true ORDER BY id ASC');
+        const tenantsRes = await pool.query('SELECT id, name, bot_tier, features, monthly_price FROM tenants WHERE is_active = true ORDER BY id ASC');
         
         // 2. Get costs by tenant
         const costsRes = await pool.query('SELECT tenant_id, SUM(cost_usd) as total_cost, SUM(prompt_tokens + completion_tokens) as total_tokens FROM usage_logs GROUP BY tenant_id');
@@ -190,18 +190,18 @@ const getGlobalStats = async (req, res) => {
         let tenant_breakdown = [];
         
         tenantsRes.rows.forEach(t => {
-            let plan_cost = pricing.plans[t.bot_tier] || 0;
+            let plan_cost = parseFloat(t.monthly_price) || 0;
             let modules_cost = 0;
             let active_modules = [];
             
             if (t.features) {
-                if (t.features.orders) { modules_cost += pricing.modules.orders || 0; active_modules.push('Pedidos'); }
-                if (t.features.inbox) { modules_cost += pricing.modules.inbox || 0; active_modules.push('Bandeja'); }
-                if (t.features.crm) { modules_cost += pricing.modules.crm || 0; active_modules.push('CRM'); }
-                if (t.features.campaigns) { modules_cost += pricing.modules.campaigns || 0; active_modules.push('Campañas'); }
+                if (t.features.orders) { active_modules.push('Pedidos'); }
+                if (t.features.inbox) { active_modules.push('Bandeja'); }
+                if (t.features.crm) { active_modules.push('CRM'); }
+                if (t.features.campaigns) { active_modules.push('Campañas'); }
             }
             
-            let mrr_total = plan_cost + modules_cost;
+            let mrr_total = plan_cost; // monthly_price already includes modules
             total_mrr_gtq += mrr_total;
             
             let t_cost_usd = costMap[t.id]?.cost_usd || 0;
@@ -292,11 +292,11 @@ const metaConnect = async (req, res) => {
         const tenant_id = req.params.id;
         
         // Exchanging code
-        const tokenRes = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?client_id=1567518045121608&client_secret=cbc0d6041a9c6302aac8c73f6b2c4352&code=${accessToken}`);
+        const tokenRes = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?client_id=${process.env.META_APP_ID}&client_secret=${process.env.META_APP_SECRET}&code=${accessToken}`);
         const tokenData = await tokenRes.json();
         
         const finalToken = tokenData.access_token || accessToken;
-        const debugRes = await fetch(`https://graph.facebook.com/v19.0/debug_token?input_token=${finalToken}&access_token=1567518045121608|cbc0d6041a9c6302aac8c73f6b2c4352`);
+        const debugRes = await fetch(`https://graph.facebook.com/v19.0/debug_token?input_token=${finalToken}&access_token=${process.env.META_APP_ID}|${process.env.META_APP_SECRET}`);
         const debugData = await debugRes.json();
         console.log("Debug Token Data:", JSON.stringify(debugData));
           
@@ -371,4 +371,34 @@ const uploadMenuImage = async (req, res) => {
     }
 };
 
-module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs, uploadMenuImage };
+const syncProfile = async (req, res) => {
+    try {
+        const tenant_id = req.params.id;
+        const result = await pool.query('SELECT whatsapp_token, whatsapp_phone_id FROM tenants WHERE id = $1', [tenant_id]);
+        if (result.rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+        
+        const { whatsapp_token, whatsapp_phone_id } = result.rows[0];
+        if (!whatsapp_token || !whatsapp_phone_id) return res.status(400).json({ error: 'No hay conexión de Meta activa.' });
+
+        let meta_name = null;
+        let meta_picture = null;
+
+        try {
+            const profileRes = await fetch(`https://graph.facebook.com/v19.0/${whatsapp_phone_id}/whatsapp_business_profile?fields=profile_picture_url`, { headers: { 'Authorization': `Bearer ${whatsapp_token}` } });
+            const profileData = await profileRes.json();
+            if (profileData.data && profileData.data.length > 0) meta_picture = profileData.data[0].profile_picture_url;
+            
+            const nameRes = await fetch(`https://graph.facebook.com/v19.0/${whatsapp_phone_id}?fields=verified_name`, { headers: { 'Authorization': `Bearer ${whatsapp_token}` } });
+            const nameData = await nameRes.json();
+            meta_name = nameData.verified_name || "WhatsApp Business";
+        } catch(e) { console.error("Error fetching from Meta:", e); }
+
+        await pool.query('UPDATE tenants SET meta_name = $1, meta_picture = $2 WHERE id = $3', [meta_name, meta_picture, tenant_id]);
+        res.json({ success: true, meta_name, meta_picture });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Error interno sincronizando perfil' });
+    }
+};
+
+module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs, uploadMenuImage, syncProfile };

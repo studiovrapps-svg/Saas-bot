@@ -1,26 +1,23 @@
 const pool = require('../config/db');
 const { sendWhatsAppText, logMessage } = require('../services/whatsapp.service');
-const { chatCache } = require('../services/ai.service');
 
 const getChats = async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 50;
         const result = await pool.query(`
             SELECT 
-                m.customer_phone, 
-                MAX(m.customer_name) as customer_name, 
-                MAX(m.created_at) as last_activity,
-                COALESCE(cs.status, 'bot') as session_status
-            FROM messages m
-            LEFT JOIN chat_sessions cs ON m.tenant_id = cs.tenant_id AND m.customer_phone = cs.user_phone
-            WHERE m.tenant_id = $1 
-            GROUP BY m.customer_phone, cs.status 
+                user_phone as customer_phone, 
+                customer_name, 
+                last_interaction as last_activity,
+                status as session_status
+            FROM chat_sessions
+            WHERE tenant_id = $1 
             ORDER BY last_activity DESC 
             LIMIT $2
         `, [req.params.id, limit]);
         res.json(result.rows);
     } catch (error) { 
-        console.error(error);
+        console.error("Error obteniendo chats:", error);
         res.status(500).json({ error: 'Error interno' }); 
     }
 };

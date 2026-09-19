@@ -40,128 +40,144 @@ const processWebhook = async (req, res) => {
         }
     }
 
-    try {
-        // Optimización: Bypass de Cola para Tier 1 (Cero latencia)
-        let isTier1 = false;
+    // Responder a Meta INMEDIATAMENTE con 200 OK
+    res.sendStatus(200);
+
+    // Procesar en background para no bloquear el webhook
+    (async () => {
         try {
-            if (req.body?.entry?.[0]?.changes?.[0]?.value?.messages) {
-                const phone_number_id = req.body.entry[0].changes[0].value.metadata.phone_number_id;
-                if (phone_number_id) {
-                    const tenant = await tenantRepo.getTenantByPhoneId(phone_number_id);
-                    if (tenant && tenant.bot_tier === 1) {
-                        isTier1 = true;
+            let isTier1 = false;
+            try {
+                if (req.body?.entry?.[0]?.changes?.[0]?.value?.messages) {
+                    const phone_number_id = req.body.entry[0].changes[0].value.metadata.phone_number_id;
+                    if (phone_number_id) {
+                        const tenant = await tenantRepo.getTenantByPhoneId(phone_number_id);
+                        if (tenant && tenant.bot_tier === 1) {
+                            isTier1 = true;
+                        }
                     }
+                }
+            } catch (e) {
+                console.warn("Error leyendo pre-tenant, asumiendo cola:", e.message);
+            }
+
+            if (isTier1) {
+                await module.exports.processWebhookJob(req.body);
+            } else {
+                const { boss } = require('../config/queue');
+                if (boss) {
+                    await boss.send('process-webhook', { body: req.body });
+                } else {
+                    await module.exports.processWebhookJob(req.body);
                 }
             }
         } catch (e) {
-            console.warn("Error leyendo pre-tenant, asumiendo cola:", e.message);
-        }
-
-        if (isTier1) {
-            // Tier 1 es ultra-rápido, lo procesamos directo
-            setImmediate(() => module.exports.processWebhookJob(req.body));
-        } else {
-            // Tier 2+ usa la cola para evitar Timeout de Meta
-            const { boss } = require('../config/queue');
-            if (boss) {
-                await boss.send('process-webhook', { body: req.body });
-            } else {
-                setImmediate(() => module.exports.processWebhookJob(req.body));
+            console.error("Error enqueuing webhook:", e);
+            try {
+                await module.exports.processWebhookJob(req.body);
+            } catch (err) {
+                console.error("Error fallback processWebhookJob:", err);
             }
         }
-    } catch (e) {
-        console.error("Error enqueuing webhook:", e);
-        setImmediate(() => module.exports.processWebhookJob(req.body));
-    }
-    res.sendStatus(200);
+    })();
 };
 
 const processWebhookJob = async (body) => {
     try {
         if (!body.object || !body.entry) return;
 
+        for (const entry of body.entry) {
+            for (const change of entry.changes) {
+                const value = change.value;
+                if (!value) continue;
 
-            // --- 2. META DELIVERY RECEIPTS ---
-            if (body.entry[0].changes[0].value.statuses) {
-                const statusObj = body.entry[0].changes[0].value.statuses[0];
-                const tenantId = await messageRepo.updateDeliveryStatus(statusObj.id, statusObj.status);
-                if (tenantId) {
-                    try {
-                        socketConfig.getIO().to(`tenant_${tenantId}`).emit('message_status_update', { meta_id: statusObj.id, status: statusObj.status });
-                    } catch (error) {
-                        console.warn("⚠️ Advertencia: No se pudo emitir status update a Socket.IO.", error.message);
+                // --- 2. META DELIVERY RECEIPTS ---
+                if (value.statuses) {
+                    for (const statusObj of value.statuses) {
+                        const tenantId = await messageRepo.updateDeliveryStatus(statusObj.id, statusObj.status);
+                        if (tenantId) {
+                            try {
+                                socketConfig.getIO().to(`tenant_${tenantId}`).emit('message_status_update', { meta_id: statusObj.id, status: statusObj.status });
+                            } catch (error) {
+                                console.warn("⚠️ Advertencia: No se pudo emitir status update a Socket.IO.", error.message);
+                            }
+                        }
                     }
                 }
-                // Eliminado: return early para no ignorar mensajes si vienen en lote con statuses
-            }
-            
-            // --- 3. MENSAJES ENTRANTES ---
-            if (!body.entry[0].changes[0].value.messages) return;
+                
+                // --- 3. MENSAJES ENTRANTES ---
+                if (value.messages) {
+                    for (const msgObj of value.messages) {
+                        const phone_number_id = value.metadata.phone_number_id;
+                        const from = msgObj.from;
+                        const profile_name = value.contacts?.[0]?.profile?.name || null;
 
-            const phone_number_id = body.entry[0].changes[0].value.metadata.phone_number_id;
-            const from = body.entry[0].changes[0].value.messages[0].from;
-            const profile_name = body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || null;
-            const msgObj = body.entry[0].changes[0].value.messages[0];
+                        // 4. Validar Tenant
+                        const tenant = await tenantRepo.getTenantByPhoneId(phone_number_id);
+                        if (!tenant || !tenant.is_active || !tenant.whatsapp_token) continue;
 
-            // 4. Validar Tenant
-            const tenant = await tenantRepo.getTenantByPhoneId(phone_number_id);
-            if (!tenant || !tenant.is_active || !tenant.whatsapp_token) return;
+                        // 5. PROTECCIÓN ANTI-DUPLICADOS (Idempotencia)
+                        if (msgObj.id) {
+                            const isNew = await messageRepo.acquireIdempotencyLock(msgObj.id);
+                            if (!isNew) {
+                                console.log(`[Idempotencia] 🛡️ Webhook duplicado de Meta bloqueado. wamid: ${msgObj.id}`);
+                                continue;
+                            }
+                        }
 
-            // 5. PROTECCIÓN ANTI-DUPLICADOS (Idempotencia)
-            if (msgObj.id) {
-                try {
-                    await messageRepo.acquireIdempotencyLock(msgObj.id);
-                } catch (error) {
-                    if (error.code === '23505') {
-                        console.log(`[Idempotencia] 🛡️ Webhook duplicado de Meta bloqueado. wamid: ${msgObj.id}`);
-                        return;
+                        // --- SIMULAR ESCRIBIENDO ---
+                        sendTypingIndicator(phone_number_id, tenant.whatsapp_token, msgObj.id, tenant.id).catch(err => console.error("Typing indicator error:", err));
+
+                        // 6. Extracción de Contenido del Mensaje
+                        let user_message = await extractMessageContent(msgObj, tenant);
+
+                        // Log de entrada
+                        await logMessage(tenant.id, from, 'inbound', msgObj.type, user_message || `media`, msgObj.id, 'received', profile_name, 'customer');
+                        
+                        // Evento WebSocket
+                        try {
+                            socketConfig.getIO().to(`tenant_${tenant.id}`).emit('new_message', { phone: from, message: user_message, direction: 'inbound', isAudio: msgObj.type === 'audio' });
+                        } catch(error) {
+                            console.warn("⚠️ Advertencia: No se pudo emitir a Socket.IO. El mensaje fue procesado en DB.", error.message);
+                        }
+
+                        // 7. Gestión de Estado de Sesión
+                        let { state, status: sessionStatus, customer_name } = await sessionRepo.getSessionState(tenant.id, from);
+                        if (state.muted_until && Date.now() < state.muted_until) {
+                            continue; // Silent mode activo
+                        }
+
+                        // 8. HANDOFF A HUMANO GLOBAL
+                        const isHandoffReq = msgObj.type === 'text' && user_message && KEYWORDS.HANDOFF_REQUEST.some(k => user_message.toLowerCase().includes(k));
+                        if (isHandoffReq && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
+                            const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
+                            await sessionRepo.setHumanStatus(tenant.id, from, mutedTimestamp);
+                            await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, COPY.HANDOFF_INITIATED, tenant.id);
+                            
+                            // Notificar a Telegram y Socket del handoff
+                            const { sendTelegramAlert, escapeHTML } = require('../services/telegram.service');
+                            sendTelegramAlert(tenant.id, `🚨 <b>NUEVO PEDIDO DE ATENCIÓN HUMANA</b> 🚨\n\n<b>Cliente:</b> ${escapeHTML(customer_name || 'Sin nombre')}\n<b>Teléfono:</b> ${from}\n<b>Mensaje:</b> ${escapeHTML(user_message)}`).catch(e => console.error(e));
+                            try {
+                                socketConfig.getIO().to(`tenant_${tenant.id}`).emit('handoff_notification', { phone: from, name: customer_name });
+                            } catch(e) {}
+                            
+                            continue;
+                        }
+
+                        // 9. ENRUTAMIENTO POR TIER
+                        if (tenant.bot_tier === 1) {
+                            await handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name);
+                        } else if (tenant.bot_tier >= 2) {
+                            if (user_message) {
+                                await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, user_message, tenant.id);
+                            }
+                        }
                     }
-                    throw error; 
                 }
             }
+        }
 
-            // --- SIMULAR ESCRIBIENDO ---
-            // Enviamos status: 'read' que es el método soportado por Meta para encolar la interacción
-            sendTypingIndicator(phone_number_id, tenant.whatsapp_token, msgObj.id, tenant.id).catch(err => console.error("Typing indicator error:", err));
-
-            // 6. Extracción de Contenido del Mensaje
-            let user_message = await extractMessageContent(msgObj, tenant);
-
-            // Log de entrada
-            await logMessage(tenant.id, from, 'inbound', msgObj.type, user_message || `media`, msgObj.id, 'received', profile_name, 'customer');
-            
-            // Evento WebSocket
-            try {
-                socketConfig.getIO().to(`tenant_${tenant.id}`).emit('new_message', { phone: from, message: user_message, direction: 'inbound', isAudio: msgObj.type === 'audio' });
-            } catch(error) {
-                console.warn("⚠️ Advertencia: No se pudo emitir a Socket.IO. El mensaje fue procesado en DB.", error.message);
-            }
-
-            // 7. Gestión de Estado de Sesión (Máquina de Estados)
-            let { state, status: sessionStatus, customer_name } = await sessionRepo.getSessionState(tenant.id, from);
-            if (state.muted_until && Date.now() < state.muted_until) {
-                return; // Silent mode activo (Controlado por humano)
-            }
-
-            // 8. HANDOFF A HUMANO GLOBAL (Tier 1 y 2/3)
-            const isHandoffReq = msgObj.type === 'text' && user_message && KEYWORDS.HANDOFF_REQUEST.some(k => user_message.toLowerCase().includes(k));
-            if (isHandoffReq && state.step !== 'awaiting_address' && state.step !== 'awaiting_quantity') {
-                const mutedTimestamp = Date.now() + HANDOFF_SILENCE_DURATION_MS;
-                await sessionRepo.setHumanStatus(tenant.id, from, mutedTimestamp);
-                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, COPY.HANDOFF_INITIATED, tenant.id);
-                return;
-            }
-
-            // 9. ENRUTAMIENTO POR TIER
-            if (tenant.bot_tier === 1) {
-                await handleTier1Flow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name);
-            } else if (tenant.bot_tier >= 2) {
-                if (user_message) {
-                    await sendWhatsAppAI(phone_number_id, tenant.whatsapp_token, from, user_message, tenant.id);
-                }
-            }
-
-        } catch (error) {
+    } catch (error) {
         console.error("Error crítico en processWebhookJob:", error);
     }
 };
@@ -173,39 +189,56 @@ async function extractMessageContent(msgObj, tenant) {
     if (msgObj.type === 'text') {
         user_message = msgObj.text?.body || '';
     } else if (msgObj.type === 'interactive') {
-        if (msgObj.interactive.type === 'list_reply') user_message = msgObj.interactive.list_reply.title;
-        else if (msgObj.interactive.type === 'button_reply') user_message = msgObj.interactive.button_reply.title;
+        const iType = msgObj.interactive?.type;
+        if (iType === 'list_reply') user_message = msgObj.interactive?.list_reply?.title || '';
+        else if (iType === 'button_reply') user_message = msgObj.interactive?.button_reply?.title || '';
+        else if (iType === 'nfm_reply') {
+            try {
+                const responseJson = JSON.parse(msgObj.interactive?.nfm_reply?.response_json || "{}");
+                user_message = `[Formulario completado: ${JSON.stringify(responseJson)}]`;
+            } catch (e) {
+                user_message = '[Formulario completado]';
+            }
+        }
     } else if (msgObj.type === 'image') {
-        const ext = (msgObj.image.mime_type || 'image/jpeg').split('/')[1] || 'jpg';
-        const buffer = await downloadWhatsAppMedia(msgObj.image.id, tenant.whatsapp_token);
+        const ext = (msgObj.image?.mime_type || 'image/jpeg').split('/')[1] || 'jpg';
+        const buffer = await downloadWhatsAppMedia(msgObj.image?.id, tenant.whatsapp_token);
         if (buffer) {
-            const fakeFile = { originalname: `img_${Date.now()}.${ext}`, buffer, mimetype: msgObj.image.mime_type || 'image/jpeg' };
+            const fakeFile = { originalname: `img_${Date.now()}.${ext}`, buffer, mimetype: msgObj.image?.mime_type || 'image/jpeg' };
             const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
-            user_message = (msgObj.image.caption ? msgObj.image.caption + '\n' : '') + `[Imagen adjunta: ${s3Url}]`;
+            user_message = (msgObj.image?.caption ? msgObj.image.caption + '\n' : '') + `[Imagen adjunta: ${s3Url}]`;
         } else {
             user_message = COPY.IMAGE_ERROR;
         }
     } else if (msgObj.type === 'audio') {
-        const buffer = await downloadWhatsAppMedia(msgObj.audio.id, tenant.whatsapp_token);
+        const buffer = await downloadWhatsAppMedia(msgObj.audio?.id, tenant.whatsapp_token);
         if (buffer) {
             user_message = await transcribeAudio(buffer, tenant.id);
         } else {
             user_message = COPY.AUDIO_ERROR;
         }
     } else if (msgObj.type === 'sticker') {
-        const ext = (msgObj.sticker.mime_type || 'image/webp').split('/')[1] || 'webp';
-        const buffer = await downloadWhatsAppMedia(msgObj.sticker.id, tenant.whatsapp_token);
+        const ext = (msgObj.sticker?.mime_type || 'image/webp').split('/')[1] || 'webp';
+        const buffer = await downloadWhatsAppMedia(msgObj.sticker?.id, tenant.whatsapp_token);
         if (buffer) {
-            const fakeFile = { originalname: `sticker_${Date.now()}.${ext}`, buffer, mimetype: msgObj.sticker.mime_type || 'image/webp' };
+            const fakeFile = { originalname: `sticker_${Date.now()}.${ext}`, buffer, mimetype: msgObj.sticker?.mime_type || 'image/webp' };
             const s3Url = await uploadImage(fakeFile, `tenant_${tenant.id}/chats`);
             user_message = `[Sticker: ${s3Url}]`;
         } else {
             user_message = `[Multimedia adjunto: sticker]`;
         }
     } else if (msgObj.type === 'location') {
-        user_message = `📍 Lat: ${msgObj.location.latitude}, Long: ${msgObj.location.longitude}`;
+        user_message = `📍 Lat: ${msgObj.location?.latitude || 'N/A'}, Long: ${msgObj.location?.longitude || 'N/A'}`;
+    } else if (msgObj.type === 'contacts') {
+        user_message = `[Contacto(s) recibido(s)]`;
+        if (msgObj.contacts && msgObj.contacts.length > 0) {
+            const cNames = msgObj.contacts.map(c => c.name?.formatted_name || 'Desconocido').join(', ');
+            user_message += ` Nombres: ${cNames}`;
+        }
+    } else if (msgObj.type === 'reaction') {
+        user_message = ''; // Será ignorado
     } else {
-        user_message = `[Multimedia adjunto: ${msgObj.type}]`;
+        user_message = `[Multimedia adjunto: ${msgObj.type || 'unknown'}]`;
     }
     return user_message;
 }
@@ -223,7 +256,12 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
 
     // Enviar menú principal Helper
     const sendMainMenu = async () => {
-        let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+        let menus = [];
+    try {
+        menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+    } catch(e) {
+        console.error("Error parsing tier1_menu:", e);
+    }
         let rows = [{ id: 'btn_catalogo', title: '🛍️ Ver productos' }];
         menus.forEach((m, idx) => {
             if (m.title && m.title.trim().length > 0) rows.push({ id: `btn_faq_${idx}`, title: m.title.trim().substring(0, 24) });
@@ -320,9 +358,20 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
                 await sessionRepo.clearSessionState(tenant.id, from);
                 return;
             }
+
+            // Bloqueo optimista (Race Condition fix)
+            const lockRes = await require('../config/db').query(
+                `UPDATE chat_sessions SET state_data = '{}'::jsonb WHERE tenant_id = $1 AND user_phone = $2 AND state_data->>'step' = 'awaiting_address' RETURNING id`, 
+                [tenant.id, from]
+            );
+            if (lockRes.rowCount === 0) {
+                console.warn(`[Race Condition] Pedido duplicado prevenido para ${from}`);
+                return;
+            }
+
             let cName = customer_name || 'Sin nombre';
             let deliveryInfo = `Nombre: ${cName}\nDirección: ${user_message}`;
-            await orderRepo.createOrder(tenant.id, from, cart, deliveryInfo);
+            let orderId = await orderRepo.createOrder(tenant.id, from, cart, deliveryInfo);
             
             let total = 0;
             let cartSummary = cart.map(item => {
@@ -332,12 +381,10 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             
             // --- TELEGRAM ALERT ---
             const { sendTelegramAlert, escapeHTML } = require('../services/telegram.service');
-            sendTelegramAlert(tenant.id, `🚨 <b>NUEVO PEDIDO (Tier 1)</b> 🚨\n\n<b>Cliente:</b> ${escapeHTML(cName)}\n<b>Teléfono:</b> ${from}\n<b>Dirección:</b> ${escapeHTML(user_message)}\n\n<b>Productos:</b>\n${escapeHTML(cartSummary)}\n\n💰 <b>Total:</b> ${tenant.currency || 'Q'}${total.toFixed(2)}`).catch(e => console.error(e));
+            sendTelegramAlert(tenant.id, `🚨 <b>NUEVO PEDIDO (Tier 1)</b> 🚨\n\n<b>Cliente:</b> ${escapeHTML(cName)}\n<b>Teléfono:</b> ${from}\n<b>Dirección:</b> ${escapeHTML(user_message)}\n\n<b>Productos:</b>\n${escapeHTML(cartSummary)}\n\n💰 <b>Total:</b> ${tenant.currency || 'USD'} ${total.toFixed(2)}`).catch(e => console.error(e));
             // ----------------------
-
-            let orderId = Math.floor(1000 + Math.random() * 9000);
             
-            let finalMsg = `${COPY.ORDER_SUCCESS}\n*Orden #${orderId}*\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n💰 *Total a pagar: ${tenant.currency || 'Q'}${total.toFixed(2)}*\n\n👤 Nombre: ${cName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
+            let finalMsg = `${COPY.ORDER_SUCCESS}\n*Orden #${orderId}*\n\n*Resumen de tu pedido:*\n${cartSummary}\n\n💰 *Total a pagar: ${tenant.currency || 'USD'} ${total.toFixed(2)}*\n\n👤 Nombre: ${cName}\n📍 Dirección: ${user_message}\n\nUn asesor humano se contactará contigo por aquí en breve para coordinar el pago y la entrega. ¡Gracias por tu compra!`;
             await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
             
             await sessionRepo.clearSessionState(tenant.id, from);
@@ -420,7 +467,12 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
 
         if (btnId.startsWith('btn_faq_')) {
             let idx = parseInt(btnId.replace('btn_faq_', ''));
-            let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+            let menus = [];
+    try {
+        menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+    } catch(e) {
+        console.error("Error parsing tier1_menu:", e);
+    }
             if (menus[idx]) {
                 let responseText = menus[idx].content || menus[idx].response;
                 if (menus[idx].action === 'catalog') {
@@ -470,8 +522,8 @@ async function handleClinicFlow(tenant, phone_number_id, from, msgObj, user_mess
     const { sessionRepo } = require('../repositories/session.repository'); // ensure access
     const { sendWhatsAppText } = require('../services/whatsapp.service');
 
-    if (msgObj.type !== 'text') {
-        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "Por favor, responde con texto para continuar con tu solicitud.", tenant.id);
+    if (!user_message) {
+        await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "Por favor, responde con un mensaje válido o selecciona una opción.", tenant.id);
         return;
     }
 
@@ -522,7 +574,12 @@ async function handleClinicFlow(tenant, phone_number_id, from, msgObj, user_mess
     // Fallback back to standard Tier 1 greeting logic but block cart operations
     // Actually just use the main flow but replace the 'Ver productos' button logic.
     // To keep it simple, we will send the custom menu.
-    let menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+    let menus = [];
+    try {
+        menus = Array.isArray(tenant.tier1_menu) ? tenant.tier1_menu : JSON.parse(tenant.tier1_menu || '[]');
+    } catch(e) {
+        console.error("Error parsing tier1_menu:", e);
+    }
     let rows = [{ id: 'btn_catalogo', title: '🩺 Ver Servicios' }];
     menus.forEach((m, idx) => {
         if (m.title && m.title.trim().length > 0) rows.push({ id: `btn_faq_${idx}`, title: m.title.trim().substring(0, 24) });
@@ -562,8 +619,25 @@ async function handleLeadGenFlow(tenant, phone_number_id, from, msgObj, user_mes
     
     // Very simple: Greeting -> Ask Email/Phone -> Thank you
     if (state.step === 'awaiting_contact_info') {
+        // Bloqueo optimista (Race Condition fix)
+        const lockRes = await require('../config/db').query(
+            `UPDATE chat_sessions SET state_data = '{}'::jsonb WHERE tenant_id = $1 AND user_phone = $2 AND state_data->>'step' = 'awaiting_contact_info' RETURNING id`, 
+            [tenant.id, from]
+        );
+        if (lockRes.rowCount === 0) return;
+
         let finalMsg = `${tenant.checkout_message || 'Gracias por tus datos. Nos contactaremos pronto.'}\n\n*Datos recibidos:* ${user_message}`;
         await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, finalMsg, tenant.id);
+        
+        try {
+            const { sendTelegramAlert, escapeHTML } = require('../services/telegram.service');
+            const cName = customer_name || 'Nuevo Lead';
+            await require('../repositories/order.repository').createOrder(tenant.id, from, [{ product: 'Lead Generado', price: 0, quantity: 1 }], `Nombre: ${cName}\nDatos: ${user_message}`);
+            sendTelegramAlert(tenant.id, `🚨 <b>NUEVO LEAD</b> 🚨\n\n<b>Cliente:</b> ${escapeHTML(cName)}\n<b>Teléfono:</b> ${from}\n<b>Datos:</b> ${escapeHTML(user_message)}`).catch(e => console.error(e));
+        } catch (e) {
+            console.error("Error guardando lead:", e);
+        }
+
         await require('../repositories/session.repository').clearSessionState(tenant.id, from);
         const { HANDOFF_SILENCE_DURATION_MS } = require('../config/constants');
         await require('../repositories/session.repository').setHumanStatus(tenant.id, from, Date.now() + HANDOFF_SILENCE_DURATION_MS);
