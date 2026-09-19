@@ -263,12 +263,29 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
                 textToSend = textToSend.replace(match[0], '');
             }
 
+            // Limpiar tags FAQ_IMG si la IA los incluyó (raro pero posible)
             while ((match = faqRegex.exec(textToSend)) !== null) {
                 const idx = parseInt(match[1]);
                 if (rules[idx] && rules[idx].image_url) {
                     faqImagesToSend.push({ url: rules[idx].image_url, caption: rules[idx].q });
                 }
                 textToSend = textToSend.replace(match[0], '');
+            }
+
+            // DETECCIÓN AUTOMÁTICA: Si la respuesta coincide con una regla que tiene imagen, enviarla
+            // Esto NO depende de que la IA incluya el tag [FAQ_IMG_X]
+            if (faqImagesToSend.length === 0 && rules.length > 0) {
+                const responseLower = finalResponseText.toLowerCase();
+                for (const rule of rules) {
+                    if (rule.image_url) {
+                        // Verificar si la respuesta contiene fragmentos significativos de la regla
+                        const ruleKeywords = rule.a.substring(0, 80).toLowerCase();
+                        if (responseLower.includes(ruleKeywords.substring(0, 40)) || 
+                            responseLower.includes(rule.q.toLowerCase())) {
+                            faqImagesToSend.push({ url: rule.image_url, caption: rule.q });
+                        }
+                    }
+                }
             }
             
             textToSend = textToSend.trim();
@@ -279,17 +296,24 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
             if (imagesToSend.length > 0) {
                 try {
                     const productsFound = await productRepo.findProductsByIds(tenant_id, imagesToSend);
-                    // QA FIX: Iterar secuencialmente para que Meta no desordene las imágenes en WhatsApp
                     for (const p of productsFound) {
                         if (p && p.image_url) {
                             try {
-                                // QA FIX: Caption más limpio, sin la URL raw
                                 const caption = p.name;
                                 await sendWhatsAppImage(phone_number_id, token, to, p.image_url, caption, tenant_id);
                             } catch(err) { console.error("Error enviando imagen", err); }
                         }
                     }
                 } catch(e) { console.error("Error en batch imágenes", e); }
+            }
+
+            // Enviar imágenes de FAQ (reglas de negocio)
+            if (faqImagesToSend.length > 0) {
+                for (const faqImg of faqImagesToSend) {
+                    try {
+                        await sendWhatsAppImage(phone_number_id, token, to, faqImg.url, faqImg.caption, tenant_id);
+                    } catch(err) { console.error("Error enviando imagen FAQ:", err); }
+                }
             }
         }
     } catch (error) {
