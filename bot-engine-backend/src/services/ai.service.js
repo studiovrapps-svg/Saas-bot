@@ -20,9 +20,7 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id, custo
         if (!tenant) throw new Error("Tenant no encontrado en la base de datos.");
 
         const rules = await tenantRepo.getBusinessRules(tenant_id);
-        const rulesText = rules.length > 0 
-            ? rules.map(r => `Regla(${r.q}): ${r.a}`).join(' | ') 
-            : "";
+        // rulesText is not injected statically anymore.
         
                 // --- CONSTRUCCIÓN DEL CEREBRO UNIVERSAL TIER 2 (OPTIMIZADO PARA 20B) ---
         // Este bloque aplica para CUALQUIER empresa nueva que contrate el bot Tier 2.
@@ -44,8 +42,9 @@ async function sendWhatsAppAI(phone_number_id, token, to, text, tenant_id, custo
 6. Sin tablas ni IDs técnicos. Usa viñetas.
 Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
 `;
+        // rules are handled by RAG context.
         const tenantPrompt = tenant.system_prompt ? tenant.system_prompt.trim() : "Vende con el catálogo.";
-        sysPrompt += `Instrucción: ${tenantPrompt}\nReglas:\n${rulesText}\nPrecios asumen moneda oficial: ${tenant.currency || 'USD'}.`;
+        sysPrompt += `Instrucción: ${tenantPrompt}\nPrecios asumen moneda oficial: ${tenant.currency || 'USD'}.`;
 
         // 2. Cargar Historial de Conversación
         const dbHistory = await messageRepo.getRecentMessagesForAI(tenant_id, to, 4);
@@ -74,8 +73,15 @@ Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
 
         let contextMsg = "";
         if (ragContext && ragContext.length > 0) {
-            contextMsg = "CATÁLOGO:\n" + ragContext.map(d => `- ${d.content} (ID:${d.reference_id || ''})`).join('\n') +
-            "\nPara vender, usa create_order. Para fotos, añade [IMG_<ID>] al final. NO muestres IDs.";
+            const formattedDocs = ragContext.map(d => {
+                if (d.type === 'rule') {
+                    return `- [REGLA/FAQ]: ${d.content}`;
+                } else {
+                    return `- [PRODUCTO]: ${d.content} (ID:${d.reference_id || ''})`;
+                }
+            });
+            contextMsg = "INFO RECUPERADA (Catálogo/FAQs):\n" + formattedDocs.join('\n') +
+            "\nPara vender, usa create_order. Para fotos de productos, añade [IMG_<ID>] al final. NO envíes fotos para reglas ni muestres IDs.";
         }
 
         // 4. Preparar Mensajes para el LLM
