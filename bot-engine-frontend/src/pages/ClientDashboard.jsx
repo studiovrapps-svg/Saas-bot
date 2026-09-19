@@ -1606,15 +1606,23 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
 
       {/* SECCIÓN MENÚ RÍGIDO (Solo visible si es Nivel 1) */}
       {activeTab === 'chatbots' && tenantInfo && tenantInfo.bot_tier === 1 && (
-          <div className="bg-gray-100 p-6 rounded-2xl border border-gray-300 shadow-sm mb-8">
+          <div className="bg-white/80 p-6 md:p-8 rounded-2xl border border-gray-100 shadow-sm mb-8 relative overflow-hidden backdrop-blur-sm"><div className="absolute top-0 left-0 w-32 h-32 bg-blue-100 rounded-full blur-3xl opacity-30 -ml-10 -mt-10 pointer-events-none"></div>
               <h2 className="text-xl font-bold text-gray-800 mb-3 flex items-center gap-2">📱 Configuración de Menú Principal (Nivel 1)</h2>
               
               <label className="block text-sm font-bold text-gray-700 mb-1 mt-4">Mensaje de Saludo</label>
-              <textarea value={tier1Greeting} onChange={e => setTier1Greeting(e.target.value)} className="w-full border p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none" rows="2" placeholder="Ej: ¡Hola! Gracias por comunicarte con nosotros..."></textarea>
+              <textarea value={tier1Greeting} onChange={e => setTier1Greeting(e.target.value)} className="w-full border border-gray-200 p-4 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50/50 resize-none transition-all text-sm text-gray-700" rows="3" placeholder="Ej: ¡Hola! Gracias por comunicarte con nosotros..."></textarea>
               
               <div className="mt-6 border-t pt-4">
                   <h3 className="font-bold text-gray-700 mb-2">Opciones del Menú (Botones)</h3>
-                  <div className="p-3 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg text-sm mb-3 font-medium">1. 🛍️ Ver Productos (Fijo - Abre el catálogo automáticamente)</div>
+                  <div className="flex items-center gap-3 p-4 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-xl text-sm mb-4 font-bold shadow-sm">
+                        <div className="bg-white p-2 rounded-lg shadow-sm">
+                            <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                        </div>
+                        <div>
+                            1. {businessVertical === 'clinic' ? '🩺 Ver Servicios' : (businessVertical === 'lead_gen' ? '📁 Catálogo' : '🛍️ Ver Productos')}
+                            <span className="block text-xs font-normal text-indigo-500/80 mt-0.5">Opción fija del sistema. No se puede editar ni borrar.</span>
+                        </div>
+                    </div>
                   
                   {tier1Menu.map((m, idx) => (
                       <div key={idx} className="flex flex-col md:flex-row gap-3 mb-3 p-4 bg-white rounded-lg border border-gray-200 shadow-sm relative">
