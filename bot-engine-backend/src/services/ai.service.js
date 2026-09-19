@@ -110,55 +110,33 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
             messages.push({ role: "user", content: text });
         }
 
-        const tools = [
-                        {
+        const tools = [];
+        if (!customer_name) {
+            tools.push({
                 type: "function",
                 function: {
                     name: "register_customer_name",
                     description: "Guarda permanentemente el nombre del cliente en la base de datos una vez que te lo dice (sólo úsala cuando el usuario te confirme cómo se llama).",
-                    parameters: {
-                        type: "object",
-                        properties: {
-                            name: { type: "string", description: "El nombre y/o apellido del cliente" }
-                        },
-                        required: ["name"]
-                    }
+                    parameters: { type: "object", properties: { name: { type: "string", description: "El nombre y/o apellido del cliente" } }, required: ["name"] }
                 }
-            },
-            {
-                type: "function",
-                function: {
-                    name: "create_order",
-                    description: "Registra un pedido cuando el usuario confirma los productos y las cantidades que desea comprar.",
-                    parameters: {
-                        type: "object",
-                        properties: {
-                            items: {
-                                type: "array",
-                                items: {
-                                    type: "object",
-                                    properties: {
-                                        product: { type: "string", description: "Nombre del producto exacto" },
-                                        quantity: { type: "integer", description: "Cantidad a comprar" }
-                                    },
-                                    required: ["product", "quantity"]
-                                }
-                            },
-                            delivery_address: { type: "string", description: "Dirección completa de entrega proporcionada por el usuario" }
-                        },
-                        required: ["items", "delivery_address"]
-                    }
-                }
-            },
-            {
-                type: "function",
-                function: {
-                    name: "transfer_to_human",
-                    description: "¡USO RESTRINGIDO! Transfiere la conversación a un humano ÚNICAMENTE en dos casos: 1. El cliente ya te proporcionó sus datos (nombre y dirección) para finalizar un trámite/compra/inscripción. 2. El cliente exige explícita y agresivamente hablar con un operador humano. En cualquier otro caso, RESUELVE la duda tú mismo.",
-                    parameters: { type: "object", properties: {} }
-                }
+            });
+        }
+        tools.push({
+            type: "function",
+            function: {
+                name: "create_order",
+                description: "Registra un pedido SOLO cuando el usuario ya confirmó qué productos quiere Y te dio su dirección de entrega. NO la uses si falta alguno de esos datos.",
+                parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { product: { type: "string" }, quantity: { type: "integer" } } } }, delivery_address: { type: "string" } } }
             }
-        ];
+        });
+        tools.push({
+            type: "function",
+            function: {
+                name: "transfer_to_human",
+                description: "¡USO RESTRINGIDO! Transfiere la conversación a un humano ÚNICAMENTE en dos casos: 1. El cliente ya te proporcionó sus datos para finalizar un trámite/compra. 2. El cliente exige hablar con un humano. En cualquier otro caso, RESUELVE la duda tú mismo.",
+                parameters: { type: "object", properties: {} }
+            }
+        });
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 12000); // 12 segundos máximo
@@ -185,12 +163,7 @@ Tú: (Ejecutas register_customer_name) "¡Mucho gusto, Carlos! ¿En qué te pued
         await messageRepo.logUsage(tenant_id, pTokens, cTokens, costUsd);
 
         
-        // Remove register_customer_name if we already have the name
-        if (customer_name) {
-            const idx = tools.findIndex(t => t.function.name === 'register_customer_name');
-            if (idx !== -1) tools.splice(idx, 1);
-        }
-const responseMessage = completion.choices[0].message;
+        const responseMessage = completion.choices[0].message;
         let finalResponseText = responseMessage.content || "";
 
         if (responseMessage.tool_calls) {
