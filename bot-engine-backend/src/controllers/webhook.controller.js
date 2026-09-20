@@ -476,9 +476,6 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             if (menus[idx]) {
                 let responseText = menus[idx].content || menus[idx].response;
                 
-                // DEBUG: Envía un mensaje con el valor de image_url
-                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `DEBUG image_url is: ${menus[idx].image_url ? menus[idx].image_url : 'undefined o falso'}`, tenant.id);
-
                 if (menus[idx].image_url) {
                     await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, menus[idx].image_url, responseText, tenant.id);
                 } else {
@@ -492,7 +489,7 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
                     state.step = 'awaiting_transfer_info';
                     await sessionRepo.setSessionState(tenant.id, from, state);
                 } else {
-                    await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú (V2)'}], tenant.id);
+                    await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
                 }
             }
             return;
