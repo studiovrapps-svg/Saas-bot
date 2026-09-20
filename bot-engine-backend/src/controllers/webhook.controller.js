@@ -475,17 +475,24 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
     }
             if (menus[idx]) {
                 let responseText = menus[idx].content || menus[idx].response;
+                
+                // DEBUG: Envía un mensaje con el valor de image_url
+                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `DEBUG image_url is: ${menus[idx].image_url ? menus[idx].image_url : 'undefined o falso'}`, tenant.id);
+
+                if (menus[idx].image_url) {
+                    await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, menus[idx].image_url, responseText, tenant.id);
+                } else {
+                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
+                }
+
                 if (menus[idx].action === 'catalog') {
                     // Send a brief message, then the catalog directly instead of falling into a trap
-                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
                     await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
                 } else if (menus[idx].action === 'transfer') {
-                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
                     state.step = 'awaiting_transfer_info';
                     await sessionRepo.setSessionState(tenant.id, from, state);
                 } else {
-                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
-                    await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
+                    await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú (V2)'}], tenant.id);
                 }
             }
             return;
@@ -520,7 +527,7 @@ module.exports = { verifyWebhook, processWebhook, processWebhookJob };
 async function handleClinicFlow(tenant, phone_number_id, from, msgObj, user_message, state, customer_name) {
     let text = user_message.toLowerCase();
     const { sessionRepo } = require('../repositories/session.repository'); // ensure access
-    const { sendWhatsAppText } = require('../services/whatsapp.service');
+    const { sendWhatsAppText, sendWhatsAppImage } = require('../services/whatsapp.service');
 
     if (!user_message) {
         await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, "Por favor, responde con un mensaje válido o selecciona una opción.", tenant.id);
@@ -592,7 +599,11 @@ async function handleClinicFlow(tenant, phone_number_id, from, msgObj, user_mess
             let idx = parseInt(btnId.replace('btn_faq_', ''));
             if (menus[idx]) {
                 let responseText = menus[idx].content || menus[idx].response;
-                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
+                if (menus[idx].image_url) {
+                    await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, menus[idx].image_url, responseText, tenant.id);
+                } else {
+                    await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, responseText, tenant.id);
+                }
                 return;
             }
         }
