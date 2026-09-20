@@ -289,6 +289,7 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
 
     if (msgObj.type === 'sticker') { 
         await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, COPY.STICKER_REJECTED, tenant.id); 
+        await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
         return; 
     }
 
@@ -354,8 +355,8 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
         if (state.step === 'awaiting_address') {
             let cart = state.cart || [];
             if (cart.length === 0) {
-                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Tu carrito está vacío. Por favor selecciona productos del catálogo.', tenant.id);
                 await sessionRepo.clearSessionState(tenant.id, from);
+                await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Tu carrito está vacío. Por favor selecciona productos del catálogo.', [{id: 'btn_catalogo', title: 'Ver catálogo'}, {id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
                 return;
             }
 
@@ -398,6 +399,7 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
         let matchedRule = rules.find(r => r.q && r.q.length >= 3 && text.includes(r.q.toLowerCase()));
         if (matchedRule) {
             await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, matchedRule.a, tenant.id);
+            await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, '¿Necesitas algo más?', [{id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
             return;
         }
 
@@ -513,7 +515,7 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
                 await sessionRepo.setSessionState(tenant.id, from, state);
                 await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, `¿Cuántas unidades de *${pRes.name}* deseas pedir? (Escribe solo el número)`, tenant.id);
             } else {
-                await sendWhatsAppText(phone_number_id, tenant.whatsapp_token, from, 'Lo siento, este producto ya no está disponible.', tenant.id);
+                await sendInteractiveButtons(phone_number_id, tenant.whatsapp_token, from, 'Lo siento, este producto ya no está disponible.', [{id: 'btn_catalogo', title: 'Ver catálogo'}, {id: 'btn_main_menu', title: 'Volver al Menú'}], tenant.id);
             }
             return;
         }
