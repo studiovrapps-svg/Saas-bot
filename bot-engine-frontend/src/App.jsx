@@ -39,15 +39,23 @@ window.fetch = async function () {
     return response;
 };
 
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import Onboarding from './pages/Onboarding';
+
 function App() {
+  const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || 'dummy-client-id.apps.googleusercontent.com';
+
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/admin" element={<SuperAdminDashboard />} />
-        <Route path="/dashboard/:tenantId" element={<ClientDashboard />} />
-      </Routes>
-    </Router>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <Router>
+        <Routes>
+          <Route path="/" element={<Login />} />
+          <Route path="/onboarding" element={<Onboarding />} />
+          <Route path="/admin" element={<SuperAdminDashboard />} />
+          <Route path="/dashboard/:tenantId" element={<ClientDashboard />} />
+        </Routes>
+      </Router>
+    </GoogleOAuthProvider>
   );
 }
 export default App;

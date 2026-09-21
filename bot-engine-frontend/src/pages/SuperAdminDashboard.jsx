@@ -418,7 +418,7 @@ function SuperAdminDashboard() {
                                         <div key={idx} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-lg transition">
                                             <div>
                                                 <p className="font-bold text-gray-800">{t.name}</p>
-                                                <p className="text-xs text-gray-500">{(t.tokens || 0).toLocaleString()} tokens</p>
+                                                <p className="text-xs text-gray-500">{(t.tokens || 0).toLocaleString()} mensajes</p>
                                             </div>
                                             <div className="flex flex-col items-end">
                                                 <div className="font-bold text-gray-900 bg-gray-100 px-3 py-1 rounded-full text-sm">
