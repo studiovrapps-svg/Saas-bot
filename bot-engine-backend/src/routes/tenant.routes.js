@@ -1,7 +1,7 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const tenantController = require('../controllers/tenant.controller');
-const { requireSuperAdmin } = require('../middlewares/auth.middleware');
+const { requireSuperAdmin, requireAuth } = require('../middlewares/auth.middleware');
 
 // Superadmin
 router.get('/admin/stats', requireSuperAdmin, tenantController.getGlobalStats);
@@ -29,6 +29,8 @@ const upload = multer({
 });
 
 // Tenant
+router.post('/onboarding', requireAuth, tenantController.completeOnboarding);
+
 router.get('/tenant/:id', tenantController.getTenantConfig);
 router.get('/tenant/:id/stats', tenantController.getStats);
 router.put('/tenant/:id/config', tenantController.updateTenantConfig);

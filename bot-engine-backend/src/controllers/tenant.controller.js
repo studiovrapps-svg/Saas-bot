@@ -401,4 +401,27 @@ const syncProfile = async (req, res) => {
     }
 };
 
-module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs, uploadMenuImage, syncProfile };
+const completeOnboarding = async (req, res) => {
+    try {
+        // Obtenemos el tenantId que viene del JWT en req.user
+        const tenant_id = req.user.tenant_id;
+        if (!tenant_id) return res.status(401).json({ error: 'No autorizado' });
+
+        const { businessName, phoneNumber } = req.body;
+        if (!businessName || !phoneNumber) {
+            return res.status(400).json({ error: 'Faltan datos requeridos (nombre o teléfono)' });
+        }
+
+        await pool.query(
+            'UPDATE tenants SET name = $1, whatsapp_phone_id = $2 WHERE id = $3', 
+            [businessName, phoneNumber, tenant_id]
+        );
+
+        res.json({ success: true, message: 'Onboarding completado exitosamente', name: businessName });
+    } catch (error) {
+        console.error("Error en completeOnboarding:", error);
+        res.status(500).json({ error: 'Error interno guardando configuración inicial' });
+    }
+};
+
+module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs, uploadMenuImage, syncProfile, completeOnboarding };
