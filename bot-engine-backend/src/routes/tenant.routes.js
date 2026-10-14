@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const tenantController = require('../controllers/tenant.controller');
 const { requireSuperAdmin, requireAuth } = require('../middlewares/auth.middleware');
@@ -35,6 +35,8 @@ router.get('/tenant/:id', tenantController.getTenantConfig);
 router.get('/tenant/:id/stats', tenantController.getStats);
 router.put('/tenant/:id/config', tenantController.updateTenantConfig);
 router.post('/tenant/:id/upload', upload.single('image'), tenantController.uploadMenuImage);
+router.post('/tenant/:id/catalog-image', upload.single('image'), tenantController.uploadCatalogImage);
+router.delete('/tenant/:id/catalog-image', tenantController.deleteCatalogImage);
 router.post('/tenant/:id/meta-connect', tenantController.metaConnect);
 router.post('/tenant/:id/sync-profile', tenantController.syncProfile);
 

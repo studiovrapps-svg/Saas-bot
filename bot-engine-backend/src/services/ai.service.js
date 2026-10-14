@@ -81,7 +81,13 @@ Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
                 }
             });
             contextMsg = "INFO RECUPERADA (Catálogo/FAQs):\n" + formattedDocs.join('\n') +
-            "\nPara vender, usa create_order. Para fotos de productos, añade [IMG_<ID>] al final. NO envíes fotos para reglas ni muestres IDs.";
+            "\nPara vender, usa create_order.";
+        }
+
+        if (tenant.catalog_image_url) {
+            contextMsg += "\nFOTOS/IMÁGENES:\n- Tienes disponible una imagen del CATÁLOGO COMPLETO. Si el cliente pide el catálogo general, menú completo o qué productos vendes, responde amablemente y agrega [IMG_CATALOGO] al final para enviar la imagen general.\n- NUNCA envíes fotos de múltiples productos juntos cuando pidan el catálogo general.\n- SOLO añade [IMG_<ID>] (máximo 1 o 2) cuando pregunten por UN producto específico.";
+        } else {
+            contextMsg += "\nPara fotos de productos específicos, añade [IMG_<ID>] al final. NO envíes fotos masivas.";
         }
 
         // 4. Preparar Mensajes para el LLM
@@ -257,10 +263,17 @@ Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
         if (finalResponseText) {
             const regex = /\[IMG_(\d+)\]/g;
             const faqRegex = /\[FAQ_IMG_(\d+)\]/g;
+            const catalogImgRegex = /\[IMG_CATALOGO\]/gi;
             let textToSend = finalResponseText;
             let match;
             const imagesToSend = [];
             const faqImagesToSend = [];
+            let sendCatalogImage = false;
+
+            if (catalogImgRegex.test(textToSend)) {
+                sendCatalogImage = true;
+                textToSend = textToSend.replace(catalogImgRegex, '');
+            }
 
             while ((match = regex.exec(finalResponseText)) !== null) {
                 imagesToSend.push(parseInt(match[1]));
@@ -274,6 +287,14 @@ Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
                     faqImagesToSend.push({ url: rules[idx].image_url, caption: rules[idx].q });
                 }
                 textToSend = textToSend.replace(match[0], '');
+            }
+
+            // DETECCIÓN INTELIGENTE: Si el cliente pidió el catálogo y existe catalog_image_url
+            const userAskedCatalog = text.match(/\b(cat[aá]logo|men[uú]|lista de precios|lista de productos|qu[eé] tienen|qu[eé] venden|ver productos)\b/i);
+            if (tenant.catalog_image_url && (sendCatalogImage || userAskedCatalog)) {
+                sendCatalogImage = true;
+                // Prevenir desorden: vaciar imágenes individuales de productos para enviar SOLO el catálogo completo
+                imagesToSend.length = 0;
             }
 
             // DETECCIÓN AUTOMÁTICA: Si la respuesta coincide con una regla que tiene imagen, enviarla
@@ -297,9 +318,15 @@ Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
                 await sendWhatsAppText(phone_number_id, token, to, textToSend, tenant_id).catch(e => console.error("Fallo al enviar msj principal:", e));
             }
 
-            if (imagesToSend.length > 0) {
+            // 1. Enviar imagen del catálogo completo si fue solicitada
+            if (sendCatalogImage && tenant.catalog_image_url) {
                 try {
-                    const productsFound = await productRepo.findProductsByIds(tenant_id, imagesToSend);
+                    await sendWhatsAppImage(phone_number_id, token, to, tenant.catalog_image_url, "Catálogo Completo", tenant_id);
+                } catch(err) { console.error("Error enviando imagen de catálogo general:", err); }
+            } else if (imagesToSend.length > 0) {
+                // 2. Solo enviar fotos individuales (máximo 2) cuando se pregunte por productos específicos
+                try {
+                    const productsFound = await productRepo.findProductsByIds(tenant_id, imagesToSend.slice(0, 2));
                     for (const p of productsFound) {
                         if (p && p.image_url) {
                             try {
@@ -311,7 +338,7 @@ Empresa: ${tenant.name} | Industria: ${tenant.business_vertical || 'Retail'}
                 } catch(e) { console.error("Error en batch imágenes", e); }
             }
 
-            // Enviar imágenes de FAQ (reglas de negocio)
+            // 3. Enviar imágenes de FAQ (reglas de negocio)
             if (faqImagesToSend.length > 0) {
                 for (const faqImg of faqImagesToSend) {
                     try {

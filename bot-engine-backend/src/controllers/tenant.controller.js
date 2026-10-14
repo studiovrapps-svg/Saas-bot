@@ -34,7 +34,7 @@ const updateCliente = async (req, res) => {
 
 const getTenantConfig = async (req, res) => {
     try {
-        const result = await pool.query('SELECT name, bot_tier, system_prompt, tier1_greeting, tier1_menu, business_rules, features, whatsapp_phone_id, meta_name, meta_picture, business_vertical, currency, checkout_message FROM tenants WHERE id = $1', [req.params.id]);
+        const result = await pool.query('SELECT name, bot_tier, system_prompt, tier1_greeting, tier1_menu, business_rules, features, whatsapp_phone_id, meta_name, meta_picture, business_vertical, currency, checkout_message, catalog_image_url FROM tenants WHERE id = $1', [req.params.id]);
         res.json(result.rows[0]);
     } catch (error) { res.status(500).json({ error: `Error interno` }); }
 };
@@ -358,7 +358,7 @@ const metaConnect = async (req, res) => {
     }
 };
 
-const { uploadImage } = require('../services/aws.service');
+const { uploadImage, deleteImage } = require('../services/aws.service');
 
 const uploadMenuImage = async (req, res) => {
     try {
@@ -368,6 +368,40 @@ const uploadMenuImage = async (req, res) => {
     } catch (e) {
         console.error("Error subiendo imagen de menu", e);
         res.status(500).json({ error: 'Error del servidor' });
+    }
+};
+
+const uploadCatalogImage = async (req, res) => {
+    try {
+        const tenant_id = req.params.id;
+        if (!req.file) return res.status(400).json({ error: 'Falta archivo de imagen' });
+
+        const cur = await pool.query('SELECT catalog_image_url FROM tenants WHERE id = $1', [tenant_id]);
+        if (cur.rows.length > 0 && cur.rows[0].catalog_image_url) {
+            await deleteImage(cur.rows[0].catalog_image_url).catch(e => console.error("Error borrando imagen previa:", e));
+        }
+
+        const url = await uploadImage(req.file, `catalogo_general/tenant_${tenant_id}`);
+        await pool.query('UPDATE tenants SET catalog_image_url = $1 WHERE id = $2', [url, tenant_id]);
+        res.json({ catalog_image_url: url });
+    } catch (e) {
+        console.error("Error subiendo imagen de catálogo general", e);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+};
+
+const deleteCatalogImage = async (req, res) => {
+    try {
+        const tenant_id = req.params.id;
+        const cur = await pool.query('SELECT catalog_image_url FROM tenants WHERE id = $1', [tenant_id]);
+        if (cur.rows.length > 0 && cur.rows[0].catalog_image_url) {
+            await deleteImage(cur.rows[0].catalog_image_url).catch(e => console.error("Error borrando imagen:", e));
+        }
+        await pool.query('UPDATE tenants SET catalog_image_url = NULL WHERE id = $1', [tenant_id]);
+        res.json({ success: true, message: 'Imagen del catálogo eliminada exitosamente' });
+    } catch (e) {
+        console.error("Error eliminando imagen de catálogo general", e);
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 };
 
@@ -424,4 +458,4 @@ const completeOnboarding = async (req, res) => {
     }
 };
 
-module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs, uploadMenuImage, syncProfile, completeOnboarding };
+module.exports = { getClientes, createCliente, updateCliente, deleteCliente, metaConnect, getTenantConfig, updateTenantConfig, getTemplates, createTemplate, updateTemplate, deleteTemplate, getStats, getGlobalStats, getGlobalPricing, updateGlobalPricing, getSystemLogs, uploadMenuImage, uploadCatalogImage, deleteCatalogImage, syncProfile, completeOnboarding };

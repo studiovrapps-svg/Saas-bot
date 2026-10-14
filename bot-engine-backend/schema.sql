@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     recurrente_subscription_id VARCHAR(255),
     subscription_status VARCHAR(50),
     current_period_end TIMESTAMP,
+    catalog_image_url TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

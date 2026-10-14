@@ -438,6 +438,9 @@ async function handleTier1Flow(tenant, phone_number_id, from, msgObj, user_messa
             if (preservedCart) { newState.state.cart = preservedCart; await sessionRepo.setSessionState(tenant.id, from, newState.state); }
             
             if (btnId === 'btn_catalogo') {
+                if (tenant.catalog_image_url) {
+                    await sendWhatsAppImage(phone_number_id, tenant.whatsapp_token, from, tenant.catalog_image_url, 'Aquí tienes nuestro catálogo completo:', tenant.id).catch(e => console.error("Error enviando catalogo imagen:", e));
+                }
                 await sendWhatsAppMenu(phone_number_id, tenant.whatsapp_token, from, tenant.id, tenant.name);
             } else {
                 await sendMainMenu();

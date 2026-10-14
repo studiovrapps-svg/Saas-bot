@@ -149,6 +149,59 @@ function ClientDashboard() {
   const [formData, setFormData] = useState({ name: '', description: '', price: '' });
   const [imageFile, setImageFile] = useState(null);
   const [editProductId, setEditProductId] = useState(null);
+  const [uploadingCatalogImg, setUploadingCatalogImg] = useState(false);
+  const catalogFileInputRef = useRef(null);
+
+  const handleUploadCatalogImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingCatalogImg(true);
+    const data = new FormData();
+    data.append('image', file);
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/tenant/${tenantId}/catalog-image`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: data
+        });
+        const result = await res.json();
+        if (res.ok) {
+            setTenantInfo(prev => ({ ...prev, catalog_image_url: result.catalog_image_url }));
+        } else {
+            alert(result.error || 'Error al subir la imagen del catálogo');
+        }
+    } catch (err) {
+        console.error(err);
+        alert('Error de conexión');
+    } finally {
+        setUploadingCatalogImg(false);
+        if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleDeleteCatalogImage = async () => {
+    if (!confirm('¿Estás seguro de eliminar la imagen del catálogo completo?')) return;
+    setUploadingCatalogImg(true);
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/tenant/${tenantId}/catalog-image`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+            setTenantInfo(prev => ({ ...prev, catalog_image_url: null }));
+        } else {
+            const result = await res.json();
+            alert(result.error || 'Error al eliminar');
+        }
+    } catch (err) {
+        console.error(err);
+        alert('Error de conexión');
+    } finally {
+        setUploadingCatalogImg(false);
+    }
+  };
 
   // Fetch inicial para lista de chats
   useEffect(() => {
@@ -1906,6 +1959,106 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
 
         return (
             <div className="space-y-6">
+                {/* Apartado Especial: Imagen del Catálogo Completo */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 md:p-6 transition hover:shadow-md">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                        {/* Text info */}
+                        <div className="flex items-start gap-4 flex-1">
+                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0 shadow-md">
+                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                    <h3 className="text-lg font-bold text-gray-900">Catálogo Completo / Menú General</h3>
+                                    {tenantInfo?.catalog_image_url ? (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                            Activo para WhatsApp
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                            Pendiente de configurar
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-gray-500 text-sm mt-1 max-w-2xl leading-relaxed">
+                                    Sube una sola imagen de tu catálogo o menú completo. Cuando un cliente en WhatsApp pida ver el catálogo, el bot le enviará esta imagen única para evitar el desorden de enviar decenas de fotos a la vez. Las fotos individuales solo se enviarán si preguntan por un producto específico.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Image Preview & Actions */}
+                        <div className="flex items-center gap-4 shrink-0">
+                            <input 
+                                type="file" 
+                                ref={catalogFileInputRef} 
+                                onChange={handleUploadCatalogImage} 
+                                accept="image/*" 
+                                className="hidden" 
+                            />
+
+                            {tenantInfo?.catalog_image_url ? (
+                                <div className="flex items-center gap-4 bg-gray-50 p-2.5 rounded-xl border border-gray-200">
+                                    <a 
+                                        href={tenantInfo.catalog_image_url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        title="Ver imagen completa"
+                                        className="relative group w-16 h-16 rounded-lg overflow-hidden border border-gray-300 bg-white shadow-sm flex items-center justify-center shrink-0 cursor-pointer"
+                                    >
+                                        <img 
+                                            src={tenantInfo.catalog_image_url} 
+                                            alt="Catálogo Completo" 
+                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" 
+                                        />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                            </svg>
+                                        </div>
+                                    </a>
+
+                                    <div className="flex flex-col gap-1.5">
+                                        <button 
+                                            onClick={() => catalogFileInputRef.current?.click()} 
+                                            disabled={uploadingCatalogImg}
+                                            className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg shadow-sm transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                            </svg>
+                                            {uploadingCatalogImg ? 'Subiendo...' : 'Cambiar Imagen'}
+                                        </button>
+                                        <button 
+                                            onClick={handleDeleteCatalogImage} 
+                                            disabled={uploadingCatalogImg}
+                                            className="px-3 py-1.5 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                        >
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                            Eliminar
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <button 
+                                    onClick={() => catalogFileInputRef.current?.click()} 
+                                    disabled={uploadingCatalogImg}
+                                    className="px-5 py-3 bg-black hover:bg-gray-800 text-white font-semibold text-sm rounded-xl shadow-sm hover:shadow transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95 cursor-pointer"
+                                >
+                                    <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                    </svg>
+                                    {uploadingCatalogImg ? 'Subiendo imagen...' : 'Subir Catálogo Completo'}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
                 {/* Search Bar */}
                 {productos.length > 0 && (
                     <div className="flex items-center gap-4 bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-md">
