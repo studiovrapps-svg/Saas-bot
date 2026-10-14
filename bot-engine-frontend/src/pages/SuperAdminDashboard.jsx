@@ -281,11 +281,9 @@ function SuperAdminDashboard() {
       )}
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="px-6 pt-6 pb-2 border-b border-gray-200 flex items-center justify-start">
-          <div className="flex flex-col items-center ml-2">
-            <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain -mb-4" />
-            <p className="text-gray-500 text-xs font-bold tracking-wider uppercase mt-0">Super Admin</p>
-          </div>
+        <div className="h-16 px-6 border-b border-gray-200 flex items-center justify-between">
+          <img src="/logo-dynova-clean.png" alt="Dynova Logo" className="h-9 w-auto object-contain" />
+          <span className="text-gray-400 text-[8.5px] font-bold tracking-wider uppercase bg-gray-100 px-1.5 py-0.5 rounded shrink-0 border border-gray-200/50">Super Admin</span>
         </div>
         
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">

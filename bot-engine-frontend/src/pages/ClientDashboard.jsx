@@ -518,8 +518,8 @@ function ClientDashboard() {
       {/* Sidebar Izquierdo (Modo Claro/Elegante) */}
       {showMobileMenu && <div onClick={() => setShowMobileMenu(false)} className="md:hidden fixed inset-0 bg-gray-900 bg-opacity-50 z-20"></div>}
       <div className={`w-64 bg-white border-r border-gray-200 flex flex-col z-30 absolute inset-y-0 left-0 transform transition-transform duration-300 md:relative md:translate-x-0 ${showMobileMenu ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="px-6 pt-6 pb-2 border-b border-gray-200 flex items-center justify-start">
-          <img src="/logo-dynova.jpeg" alt="Dynova Logo" className="h-20 w-auto object-contain ml-2 -mb-4" />
+        <div className="h-16 px-6 border-b border-gray-200 flex items-center justify-start">
+          <img src="/logo-dynova-clean.png" alt="Dynova Logo" className="h-9 w-auto object-contain" />
         </div>
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1">
           <div onClick={() => { setActiveTab('dashboard'); setShowMobileMenu(false); }} className={`${activeTab === 'dashboard' ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'} rounded-lg p-2.5 flex items-center gap-3 cursor-pointer transition`}>
@@ -1537,6 +1537,7 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                           </div>
                           
                           <div className="w-full flex flex-col justify-end flex-1">
+                            {tenantInfo?.whatsapp_phone_id ? (
                               <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-auto">
                                   <p className="text-sm font-semibold text-gray-800 mb-3 text-center leading-snug">
                                       Busca a <a href={`https://t.me/${import.meta.env.VITE_TELEGRAM_BOT_USERNAME || 'dynova_alertas_bot'}`} target="_blank" rel="noreferrer" className="text-[#0088cc] hover:underline font-bold">@Dynova_alertas_bot</a> en Telegram y envíale este código:
@@ -1552,6 +1553,15 @@ const newStatus = currentStatus === 'bot' ? 'humano' : 'bot';
                                       Da clic en el código para copiarlo. El bot te confirmará cuando la vinculación sea exitosa.
                                   </p>
                               </div>
+                            ) : (
+                                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mt-auto h-full flex items-center justify-center">
+                                    <div className="flex flex-col items-center text-center">
+                                        <svg className="w-8 h-8 text-orange-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                                        <p className="text-sm font-semibold text-orange-800 mb-1">Acción Requerida</p>
+                                        <p className="text-xs text-orange-700">Para poder vincular tus alertas de Telegram, primero debes conectar tu línea de WhatsApp en la sección de Configuración.</p>
+                                    </div>
+                                </div>
+                            )}
                           </div>
                       </div>
                   </div>
